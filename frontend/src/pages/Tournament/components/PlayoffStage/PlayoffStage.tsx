@@ -46,6 +46,8 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editScores, setEditScores] = useState<{ [matchId: number]: { score1: string; score2: string } }>({});
+  const [editingMatchId, setEditingMatchId] = useState<number | null>(null);
+  const [savingMatchId, setSavingMatchId] = useState<number | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -70,17 +72,56 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
     fetchStage();
   }, [tournamentId]);
 
-  // --- Вычисления, не хуки! ---
+  const handleSave = async (matchId: number) => {
+    const { score1, score2 } = editScores[matchId] || { score1: '', score2: '' };
+    if (score1 === '' || score2 === '') return;
+    const s1 = parseInt(score1, 10);
+    const s2 = parseInt(score2, 10);
+    if (isNaN(s1) || isNaN(s2)) return;
+
+    setSavingMatchId(matchId);
+    try {
+      await apiRequest(`playoffs/match/${matchId}/result`, 'POST', { score1: s1, score2: s2 }, true);
+      await fetchStage();
+      setEditScores(prev => {
+        const copy = { ...prev };
+        delete copy[matchId];
+        return copy;
+      });
+      setEditingMatchId(null);
+    } finally {
+      setSavingMatchId(null);
+    }
+  };
+
+  const handleStartEdit = (match: PlayoffMatch) => {
+    setEditingMatchId(match.match_id);
+    setEditScores(prev => ({
+      ...prev,
+      [match.match_id]: {
+        score1: match.score1 !== null && match.score1 !== undefined ? String(match.score1) : '',
+        score2: match.score2 !== null && match.score2 !== undefined ? String(match.score2) : '',
+      },
+    }));
+  };
+
+  const handleCancelEdit = (matchId: number) => {
+    setEditingMatchId(null);
+    setEditScores(prev => {
+      const copy = { ...prev };
+      delete copy[matchId];
+      return copy;
+    });
+  };
+
   let canDelete = false;
-  let finalMatch: PlayoffMatch | null = null;
   let stageId = stage?.stage_id;
   if (stage && isOrganizer && Array.isArray(stage.brackets) && stage.brackets.length > 0) {
     const mainBracket = stage.brackets.find(b => b.type === 'main') || stage.brackets[0];
     if (mainBracket && mainBracket.rounds.length > 0) {
       const finalRound = mainBracket.rounds[mainBracket.rounds.length - 1];
       if (finalRound && finalRound.matches.length > 0) {
-        finalMatch = finalRound.matches[0];
-        canDelete = !finalMatch.played;
+        canDelete = !finalRound.matches[0].played;
       }
     }
   }
@@ -91,9 +132,8 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
     setDeleteError(null);
     try {
       await apiRequest(`playoffs/stage/${stageId}`, 'DELETE', undefined, true);
-      setStage(null); // Скрыть сетку после удаления
+      setStage(null);
       if (typeof window !== 'undefined' && window.dispatchEvent) {
-        // Сообщить родителю о необходимости скрыть PlayoffStage
         window.dispatchEvent(new CustomEvent('playoffDeleted'));
       }
     } catch (e: any) {
@@ -101,6 +141,117 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
     } finally {
       setDeleteLoading(false);
     }
+  };
+
+  const renderMatch = (match: PlayoffMatch, isLastRound: boolean) => {
+    const isEditing = editingMatchId === match.match_id;
+    const showInputs = isOrganizer && (!match.played || isEditing);
+
+    const localScores = editScores[match.match_id] || {
+      score1: match.score1 !== null && match.score1 !== undefined ? String(match.score1) : '',
+      score2: match.score2 !== null && match.score2 !== undefined ? String(match.score2) : '',
+    };
+
+    const canSave =
+      localScores.score1 !== '' &&
+      localScores.score2 !== '' &&
+      !isNaN(parseInt(localScores.score1, 10)) &&
+      !isNaN(parseInt(localScores.score2, 10));
+
+    return (
+      <div key={match.match_id} className={styles.matchCell}>
+        {[match.participant1_id, match.participant2_id].map((pid, idx) => {
+          if (!pid) return <div key={idx} className={styles.emptyCell}>—</div>;
+          const p = participantMap[pid];
+          const score = idx === 0 ? localScores.score1 : localScores.score2;
+          const isWinner = match.winner_id === pid && match.played;
+          const winnerRadius = isWinner ? (idx === 0 ? '12px 12px 0 0' : '0 0 12px 12px') : undefined;
+
+          return (
+            <div
+              key={pid}
+              className={styles.playerCell}
+              style={isWinner ? {
+                background: 'linear-gradient(90deg, #eaffea 80%, #f6fff6 100%)',
+                boxShadow: '0 2px 8px 0 #38b73822',
+                borderRadius: winnerRadius,
+                fontWeight: 'bold',
+                color: '#38b738',
+              } : {}}
+            >
+              <span
+                className={styles.playerName}
+                style={isWinner ? { fontWeight: 'bold', color: '#38b738' } : {}}
+              >
+                {p?.displayName || '—'}
+              </span>
+              <span className={styles.playerCellBar} />
+              {showInputs ? (
+                <input
+                  type="number"
+                  min={0}
+                  className={styles.scoreInput}
+                  value={score}
+                  onChange={e => {
+                    const value = e.target.value;
+                    setEditScores(prev => {
+                      const prevScores = prev[match.match_id] || { score1: '', score2: '' };
+                      return {
+                        ...prev,
+                        [match.match_id]: idx === 0
+                          ? { ...prevScores, score1: value }
+                          : { ...prevScores, score2: value },
+                      };
+                    });
+                  }}
+                />
+              ) : (
+                <span className={styles.playerScore}>
+                  {score !== '' && score !== undefined ? score : ''}
+                </span>
+              )}
+            </div>
+          );
+        })}
+
+        {isOrganizer && (
+          <div className={styles.matchActions}>
+            {isEditing ? (
+              <>
+                <button
+                  className={styles.saveButton}
+                  onClick={() => handleSave(match.match_id)}
+                  disabled={savingMatchId === match.match_id || !canSave}
+                >
+                  {savingMatchId === match.match_id ? '...' : 'Сохранить'}
+                </button>
+                <button
+                  className={styles.cancelEditButton}
+                  onClick={() => handleCancelEdit(match.match_id)}
+                >
+                  Отмена
+                </button>
+              </>
+            ) : match.played ? (
+              <button
+                className={styles.editButton}
+                onClick={() => handleStartEdit(match)}
+              >
+                Изменить счёт
+              </button>
+            ) : (
+              <button
+                className={styles.saveButton}
+                onClick={() => handleSave(match.match_id)}
+                disabled={savingMatchId === match.match_id || !canSave}
+              >
+                {savingMatchId === match.match_id ? '...' : 'Сохранить'}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    );
   };
 
   if (loading) return <div>Загрузка олимпийской сетки...</div>;
@@ -126,117 +277,44 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
       )}
       {stage.brackets.map(bracket => (
         <div key={bracket.bracket_id} className={styles.bracketBlock}>
-          <h3 className={styles.bracketTitle}>{bracket.type === 'main' ? 'Основная сетка' : 'Доп. сетка'}</h3>
+          <h3 className={styles.bracketTitle}>
+            {bracket.type === 'main' ? 'Основная сетка' : 'Доп. сетка'}
+          </h3>
           <div style={{ overflowX: 'auto', width: '100%' }}>
             <div className={styles.bracketGrid}>
-              {bracket.rounds.map((round, roundIdx) => (
-                <div key={round.round_id} className={styles.roundColumn}>
-                  <div className={styles.roundName}>{round.name}</div>
-                  {round.matches
-                    .slice() // не мутируем исходный массив
-                    .sort((a, b) => (a.order ?? a.match_id) - (b.order ?? b.match_id))
-                    .map((match) => {
-                      let marginTop: string | undefined = undefined;
-                      if (
-                        bracket.rounds.length > 1 &&
-                        roundIdx === bracket.rounds.length - 1 &&
-                        round.matches.length === 1
-                      ) {
-                        marginTop = `calc(50% - 48px)`;
-                      }
+              {bracket.rounds.map((round, roundIdx) => {
+                const isLastRound = roundIdx === bracket.rounds.length - 1;
+                const sortedMatches = round.matches
+                  .slice()
+                  .sort((a, b) => (a.order ?? a.match_id) - (b.order ?? b.match_id));
+
+                // Группируем матчи по парам для CSS-коннекторов
+                const matchGroups: PlayoffMatch[][] = [];
+                if (isLastRound) {
+                  sortedMatches.forEach(m => matchGroups.push([m]));
+                } else {
+                  for (let i = 0; i < sortedMatches.length; i += 2) {
+                    matchGroups.push(sortedMatches.slice(i, i + 2));
+                  }
+                }
+
+                return (
+                  <div key={round.round_id} className={styles.roundColumn}>
+                    <div className={styles.roundName}>{round.name}</div>
+                    {matchGroups.map((group, groupIdx) => {
+                      const isPair = group.length === 2;
                       return (
                         <div
-                          key={match.match_id}
-                          className={styles.matchCell}
-                          style={marginTop ? { marginTop } : {}}
+                          key={groupIdx}
+                          className={isPair ? styles.matchPairWrapper : styles.matchSingleWrapper}
                         >
-                          {[match.participant1_id, match.participant2_id].map((pid, idx) => {
-                            if (!pid) return <div key={idx} className={styles.emptyCell}>—</div>;
-                            const p = participantMap[pid];
-                            const localScores = editScores[match.match_id] || { score1: match.score1 ?? '', score2: match.score2 ?? '' };
-                            const score = idx === 0 ? localScores.score1 : localScores.score2;
-                            // Helper to submit scores on blur
-                            const handleBlur = () => {
-                              const { score1, score2 } = editScores[match.match_id] || { score1: '', score2: '' };
-                              if (score1 !== '' && score2 !== '') {
-                                const s1 = parseInt(score1, 10);
-                                const s2 = parseInt(score2, 10);
-                                if (!isNaN(s1) && !isNaN(s2)) {
-                                  apiRequest(
-                                    `playoffs/match/${match.match_id}/result`,
-                                    'POST',
-                                    { score1: s1, score2: s2 },
-                                    true
-                                  ).then(() => {
-                                    fetchStage();
-                                    setEditScores(prev2 => {
-                                      const copy = { ...prev2 };
-                                      delete copy[match.match_id];
-                                      return copy;
-                                    });
-                                  });
-                                }
-                              }
-                            };
-                            // Подсветка победителя
-                            const isWinner = match.winner_id === pid && match.played;
-                            // Определяем скругление для победителя
-                            let winnerRadius = undefined;
-                            if (isWinner) {
-                              if (idx === 0) {
-                                winnerRadius = '12px 12px 0 0'; // верхний игрок
-                              } else {
-                                winnerRadius = '0 0 12px 12px'; // нижний игрок
-                              }
-                            }
-                            return (
-                              <div
-                                key={pid}
-                                className={styles.playerCell}
-                                style={isWinner ? {
-                                  background: 'linear-gradient(90deg, #eaffea 80%, #f6fff6 100%)',
-                                  boxShadow: '0 2px 8px 0 #38b73822',
-                                  borderRadius: winnerRadius,
-                                  fontWeight: 'bold',
-                                  color: '#38b738'
-                                } : {}}
-                              >
-                                <span
-                                  className={styles.playerName}
-                                  style={isWinner ? { fontWeight: 'bold', color: '#38b738' } : {}}
-                                >
-                                  {p?.displayName || '—'}
-                                </span>
-                                <span className={styles.playerCellBar}></span>
-                                {isOrganizer && !match.played ? (
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    style={{ width: 36, fontSize: '1rem', padding: '2px 4px', marginLeft: 2 }}
-                                    value={score}
-                                    onChange={e => {
-                                      const value = e.target.value;
-                                      setEditScores(prev => {
-                                        const prevScores = prev[match.match_id] || { score1: '', score2: '' };
-                                        const newScores = idx === 0
-                                          ? { ...prevScores, score1: value }
-                                          : { ...prevScores, score2: value };
-                                        return { ...prev, [match.match_id]: newScores };
-                                      });
-                                    }}
-                                    onBlur={handleBlur}
-                                  />
-                                ) : (
-                                  <span className={styles.playerScore}>{score !== '' && score !== undefined ? score : ''}</span>
-                                )}
-                              </div>
-                            );
-                          })}
+                          {group.map(match => renderMatch(match, isLastRound))}
                         </div>
                       );
                     })}
-                </div>
-              ))}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>

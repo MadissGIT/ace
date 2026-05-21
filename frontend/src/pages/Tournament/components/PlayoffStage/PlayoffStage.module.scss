@@ -3,13 +3,12 @@
   padding: 24px 0;
   background: #fff;
   border-radius: 16px;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.07);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.07);
   min-height: 400px;
 }
 
 .bracketBlock {
   margin-bottom: 32px;
-  align-items: center;
 }
 
 .bracketTitle {
@@ -20,186 +19,252 @@
   text-align: center;
 }
 
-
 .bracketGrid {
   display: flex;
   gap: 32px;
   justify-content: center;
-  align-items: center !important;
-  height: 100%;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  padding-bottom: 8px;
+  align-items: flex-start;
+  padding: 16px 24px 16px 24px;
   width: max-content;
 }
 
+// Колонка раунда
 .roundColumn {
   display: flex;
   flex-direction: column;
-  min-width: 160px;
-  position: relative;
-  justify-content: center;
-  height: 100%;
-  align-self: center;
-}
-
-.roundColumn {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  min-width: 160px;
+  align-items: center;
+  min-width: 180px;
   position: relative;
 }
 
 .roundName {
-  font-size: 1rem;
-  font-weight: 500;
-  margin-bottom: 12px;
-  color: #222;
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: #f95e1b;
   text-align: center;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
-.matchCell {
-  background: #f8f9fa;
-  border-radius: 10px;
-  box-shadow: 0 1px 4px rgba(249,94,27,0.07);
-  margin-bottom: 18px;
-  padding: 12px 12px;
-  min-width: 140px;
-  min-height: 80px;
+// ─── Группировка матчей ───────────────────────────────────────────────────────
+
+// Пара матчей: добавляет CSS-коннекторы вправо
+.matchPairWrapper {
+  position: relative;
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: 12px;
-  margin-left: auto;
-  margin-right: auto;
-  position: relative;
-  justify-content: center;
-  box-sizing: border-box;
+  gap: 8px;
+  margin-bottom: 16px;
+  width: 100%;
+
+  // Горизонтальные «рукава» от каждого матча вправо + вертикальная «спина»
+  .matchCell:first-child::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    right: -17px;
+    width: 17px;
+    height: calc(50% + 8px); // до середины промежутка (gap/2 = 4px + margin-half)
+    border-top: 2px solid #d0d4da;
+    border-right: 2px solid #d0d4da;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .matchCell:last-child::after {
+    content: '';
+    position: absolute;
+    bottom: 50%;
+    right: -17px;
+    width: 17px;
+    height: calc(50% + 8px);
+    border-bottom: 2px solid #d0d4da;
+    border-right: 2px solid #d0d4da;
+    pointer-events: none;
+    z-index: 1;
+  }
 }
 
-.matchLine {
+// Одиночный матч (финал или нечётный)
+.matchSingleWrapper {
+  width: 100%;
+  margin-bottom: 16px;
+}
+
+// Входная линия для каждого раунда кроме первого
+.roundColumn:not(:first-child) .matchCell::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: -17px;
+  transform: translateY(-1px);
+  width: 17px;
+  height: 2px;
+  background: #d0d4da;
   pointer-events: none;
   z-index: 1;
 }
 
-.roundColumn {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  min-width: 160px;
-  position: relative;
-  justify-content: center;
-  height: 100%;
-  display: flex;
-  align-items: center;
-}
-
-.roundColumn > .matchCell {
-  margin-top: auto;
-}
-
-.roundColumn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-width: 140px;
-}
-
-.roundName {
-  font-size: 1rem;
-  font-weight: 500;
-  margin-bottom: 12px;
-  color: #222;
-}
+// ─── Ячейка матча ─────────────────────────────────────────────────────────────
 
 .matchCell {
   background: #f8f9fa;
+  border: 1px solid #e8ecf0;
   border-radius: 10px;
-  box-shadow: 0 1px 4px rgba(249,94,27,0.07);
-  margin-bottom: 18px;
-//   padding: 12px 10px;
-  min-width: 120px;
+  box-shadow: 0 2px 6px rgba(249, 94, 27, 0.06);
+  min-width: 180px;
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 6px;
+  position: relative;
+  overflow: hidden;
 }
 
 .playerCell {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 1rem;
+  font-size: 0.92rem;
   color: #333;
   font-weight: 500;
-  border-bottom: 1px solid #e1e5e9;
-  padding: 0px 12px 12px 12px;
-  // Скругление для победителя задается inline-стилем через border-radius:
-  // верхний игрок: 12px 12px 0 0
-  // нижний игрок: 0 0 12px 12px
+  border-bottom: 1px solid #e8ecf0;
+  padding: 8px 12px;
+  min-height: 40px;
 }
 
-.playerCellBar {
-  display: inline-block;
-  width: 100%;
-  max-width: 18px;
-  min-width: 12px;
-  height: 18px;
-  border-left: 1.5px solid #e1e5e9;
-  margin: 0 8px 0 8px;
-  vertical-align: middle;
-  box-sizing: border-box;
-}
-
-.playerCell:last-child {
+.playerCell:last-of-type {
   border-bottom: none;
 }
 
 .playerName {
-  flex: 2 1 120px;
-  min-width: 120px;
-  max-width: 220px;
+  flex: 2 1 0;
+  min-width: 0;
   text-align: left;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  margin-right: 6px;
 }
-.playerCell input[type="number"] {
-  flex: 0 0 44px;
+
+.playerCellBar {
+  display: inline-block;
+  width: 1px;
+  min-height: 16px;
+  background: #e1e5e9;
+  margin: 0 8px;
+  flex-shrink: 0;
+}
+
+.scoreInput {
+  width: 44px;
   min-width: 44px;
   max-width: 44px;
   height: 28px;
-  font-size: 1rem;
+  font-size: 0.95rem;
   text-align: center;
+  border: 1px solid #ccc;
+  border-radius: 4px;
   box-sizing: border-box;
+  flex-shrink: 0;
+
+  &:focus {
+    outline: none;
+    border-color: #f95e1b;
+  }
 }
+
 .playerScore {
   display: inline-block;
   min-width: 44px;
   text-align: center;
   height: 28px;
   line-height: 28px;
-  font-size: 1rem;
-  margin-left: 8px;
+  font-size: 0.95rem;
   color: #f95e1b;
-  font-weight: 600;
-}
-
-.playerScore {
-  margin-left: 8px;
-  color: #f95e1b;
-  font-weight: 600;
+  font-weight: 700;
+  flex-shrink: 0;
 }
 
 .emptyCell {
   color: #bbb;
   font-style: italic;
   text-align: center;
-  padding: 4px 0;
+  padding: 8px 12px;
   min-height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
+  border-bottom: 1px solid #e8ecf0;
+
+  &:last-of-type {
+    border-bottom: none;
+  }
+}
+
+// ─── Кнопки действий внутри матча ────────────────────────────────────────────
+
+.matchActions {
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px;
+  border-top: 1px solid #e8ecf0;
+  background: #fafbfc;
+}
+
+.saveButton {
+  flex: 1;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 4px 8px;
+  background: #f95e1b;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+
+  &:hover:not(:disabled) {
+    opacity: 0.85;
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+}
+
+.editButton {
+  flex: 1;
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 4px 8px;
+  background: transparent;
+  color: #888;
+  border: 1px solid #d0d4da;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+
+  &:hover {
+    border-color: #f95e1b;
+    color: #f95e1b;
+  }
+}
+
+.cancelEditButton {
+  flex: 1;
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 4px 8px;
+  background: transparent;
+  color: #888;
+  border: 1px solid #d0d4da;
+  border-radius: 5px;
+  cursor: pointer;
+
+  &:hover {
+    border-color: #999;
+    color: #555;
+  }
 }
