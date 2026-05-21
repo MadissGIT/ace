@@ -49,7 +49,6 @@
 
 // ─── Группировка матчей ───────────────────────────────────────────────────────
 
-// Пара матчей: добавляет CSS-коннекторы вправо
 .matchPairWrapper {
   position: relative;
   display: flex;
@@ -57,53 +56,59 @@
   gap: 8px;
   margin-bottom: 16px;
   width: 100%;
+}
 
-  // Горизонтальные «рукава» от каждого матча вправо + вертикальная «спина»
-  .matchCell:first-child::after {
+.matchSingleWrapper {
+  width: 100%;
+  margin-bottom: 16px;
+}
+
+// Верхний матч в паре — правый «рукав» вниз
+.matchCellFirst {
+  &::after {
     content: '';
     position: absolute;
     top: 50%;
     right: -17px;
     width: 17px;
-    height: calc(50% + 8px); // до середины промежутка (gap/2 = 4px + margin-half)
-    border-top: 2px solid #d0d4da;
-    border-right: 2px solid #d0d4da;
+    height: calc(50% + 8px);
+    border-top: 2px solid #c8cdd4;
+    border-right: 2px solid #c8cdd4;
     pointer-events: none;
-    z-index: 1;
+    z-index: 2;
   }
+}
 
-  .matchCell:last-child::after {
+// Нижний матч в паре — правый «рукав» вверх
+.matchCellLast {
+  &::after {
     content: '';
     position: absolute;
     bottom: 50%;
     right: -17px;
     width: 17px;
     height: calc(50% + 8px);
-    border-bottom: 2px solid #d0d4da;
-    border-right: 2px solid #d0d4da;
+    border-bottom: 2px solid #c8cdd4;
+    border-right: 2px solid #c8cdd4;
     pointer-events: none;
-    z-index: 1;
+    z-index: 2;
   }
 }
 
-// Одиночный матч (финал или нечётный)
-.matchSingleWrapper {
-  width: 100%;
-  margin-bottom: 16px;
-}
-
-// Входная линия для каждого раунда кроме первого
-.roundColumn:not(:first-child) .matchCell::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: -17px;
-  transform: translateY(-1px);
-  width: 17px;
-  height: 2px;
-  background: #d0d4da;
-  pointer-events: none;
-  z-index: 1;
+// Входная линия слева (все матчи кроме первого раунда)
+.matchCellIncoming {
+  &::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: -17px;
+    transform: translateY(-1px);
+    width: 17px;
+    height: 2px;
+    background: #c8cdd4;
+    pointer-events: none;
+    z-index: 2;
+  }
 }
 
 // ─── Ячейка матча ─────────────────────────────────────────────────────────────

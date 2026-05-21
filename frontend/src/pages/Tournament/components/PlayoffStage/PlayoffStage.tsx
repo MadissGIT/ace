@@ -143,7 +143,7 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
     }
   };
 
-  const renderMatch = (match: PlayoffMatch, isLastRound: boolean) => {
+  const renderMatch = (match: PlayoffMatch, cellExtraClass?: string) => {
     const isEditing = editingMatchId === match.match_id;
     const showInputs = isOrganizer && (!match.played || isEditing);
 
@@ -158,8 +158,10 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
       !isNaN(parseInt(localScores.score1, 10)) &&
       !isNaN(parseInt(localScores.score2, 10));
 
+    const cellClass = [styles.matchCell, cellExtraClass].filter(Boolean).join(' ');
+
     return (
-      <div key={match.match_id} className={styles.matchCell}>
+      <div key={match.match_id} className={cellClass}>
         {[match.participant1_id, match.participant2_id].map((pid, idx) => {
           if (!pid) return <div key={idx} className={styles.emptyCell}>—</div>;
           const p = participantMap[pid];
@@ -298,6 +300,8 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
                   }
                 }
 
+                const isFirstRound = roundIdx === 0;
+
                 return (
                   <div key={round.round_id} className={styles.roundColumn}>
                     <div className={styles.roundName}>{round.name}</div>
@@ -308,7 +312,13 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
                           key={groupIdx}
                           className={isPair ? styles.matchPairWrapper : styles.matchSingleWrapper}
                         >
-                          {group.map(match => renderMatch(match, isLastRound))}
+                          {group.map((match, matchIdx) => {
+                            const extraClasses: string[] = [];
+                            if (isPair && matchIdx === 0) extraClasses.push(styles.matchCellFirst);
+                            if (isPair && matchIdx === 1) extraClasses.push(styles.matchCellLast);
+                            if (!isFirstRound) extraClasses.push(styles.matchCellIncoming);
+                            return renderMatch(match, extraClasses.join(' ') || undefined);
+                          })}
                         </div>
                       );
                     })}
