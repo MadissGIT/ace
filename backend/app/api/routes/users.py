@@ -265,6 +265,17 @@ async def delete_user_by_id(
     if user_found is None:
         raise HTTPException(status_code=404, detail="User not found")
 
+    tournament_count = (
+        await session.execute(
+            select(func.count()).select_from(Tournament).where(Tournament.owner_id == user_id)
+        )
+    ).scalar_one()
+    if tournament_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Невозможно удалить пользователя: у него есть {tournament_count} турнир(ов). Сначала удалите или переназначьте турниры.",
+        )
+
     statement = delete(User).where(User.id == user_id)
     await session.execute(statement)
     await session.commit()

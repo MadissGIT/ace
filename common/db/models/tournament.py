@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from .category import Category
     from .participant import TournamentParticipant
     from .group import GroupStage
+    from .playoff import PlayoffStage
 
 
 class TournamentBase(SQLModel):
@@ -53,6 +54,14 @@ class Tournament(TournamentBase, table=True):
         back_populates="tournament",
         sa_relationship=sa_relationship(
             "GroupStage",
+            back_populates="tournament",
+            passive_deletes=True,
+        ),
+    )
+    playoff_stages: List["PlayoffStage"] = Relationship(
+        back_populates="tournament",
+        sa_relationship=sa_relationship(
+            "PlayoffStage",
             back_populates="tournament",
             passive_deletes=True,
         ),

@@ -1,7 +1,11 @@
 import datetime
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from sqlmodel import Field, Relationship, SQLModel
+
+if TYPE_CHECKING:
+    from .tournament import Tournament
 
 
 class PlayoffStageBase(SQLModel):
@@ -17,6 +21,7 @@ class PlayoffStage(PlayoffStageBase, table=True):
         ondelete="CASCADE",
     )
 
+    tournament: "Tournament" = Relationship(back_populates="playoff_stages")
     brackets: list["PlayoffBracket"] = Relationship(
         back_populates="stage",
         passive_deletes="all",
@@ -86,15 +91,18 @@ class PlayoffMatch(PlayoffMatchBase, table=True):
 
     participant1_id: int | None = Field(
         foreign_key="tournament_participants.id",
+        ondelete="SET NULL",
         default=None,
     )
     participant2_id: int | None = Field(
         foreign_key="tournament_participants.id",
+        ondelete="SET NULL",
         default=None,
     )
 
     winner_id: int | None = Field(
         foreign_key="tournament_participants.id",
+        ondelete="SET NULL",
         default=None,
     )
 
