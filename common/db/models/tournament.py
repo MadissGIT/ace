@@ -49,7 +49,14 @@ class Tournament(TournamentBase, table=True):
             cascade="all, delete, delete-orphan",
         ),
     )
-    groups: List["GroupStage"] = Relationship(back_populates="tournament")
+    groups: List["GroupStage"] = Relationship(
+        back_populates="tournament",
+        sa_relationship=sa_relationship(
+            "GroupStage",
+            back_populates="tournament",
+            passive_deletes=True,
+        ),
+    )
 
 
 class TournamentUpdate(TournamentBase):
