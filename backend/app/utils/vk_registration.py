@@ -38,7 +38,10 @@ def build_code_challenge(code_verifier: str) -> str:
     return base64.urlsafe_b64encode(digest).decode().rstrip("=")
 
 
-async def create_registration_session(phone_number: str | None = None) -> dict[str, Any]:
+async def create_registration_session(
+    phone_number: str | None = None,
+    return_path: str | None = None,
+) -> dict[str, Any]:
     if not settings.VK_APP_ID:
         raise HTTPException(status_code=500, detail="VK_APP_ID is not configured")
     if not settings.VK_REDIRECT_URI:
@@ -52,6 +55,7 @@ async def create_registration_session(phone_number: str | None = None) -> dict[s
         "state": state,
         "code_verifier": code_verifier,
         "phone_number": normalized_phone,
+        "return_path": sanitize_return_path(return_path),
         "status": STATUS_PENDING,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -107,6 +111,7 @@ async def complete_registration_callback(
         "vk_id": vk_id,
         "phone_number": expected_phone,
         "vk_phone_number": normalize_phone(vk_phone) if vk_phone else None,
+        "return_path": session.get("return_path") or "/registration",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await _save_verified_session(verified_token, verified_session)
@@ -244,10 +249,21 @@ def extract_vk_phone(user_info: dict[str, Any]) -> str | None:
     return None
 
 
-def build_frontend_redirect(**params: str) -> str:
+def build_frontend_redirect(path: str = "/registration", **params: str) -> str:
     frontend_host = settings.FRONTEND_HOST.rstrip("/")
     separator = "&" if "?" in settings.FRONTEND_HOST else "?"
-    return f"{frontend_host}/registration{separator}{urlencode(params)}"
+    safe_path = sanitize_return_path(path)
+    return f"{frontend_host}{safe_path}{separator}{urlencode(params)}"
+
+
+def sanitize_return_path(path: str | None) -> str:
+    if not path:
+        return "/registration"
+    if not path.startswith("/") or path.startswith("//"):
+        return "/registration"
+    if "://" in path:
+        return "/registration"
+    return path
 
 
 def _json_or_error(response: httpx.Response, default_detail: str) -> dict[str, Any]:
