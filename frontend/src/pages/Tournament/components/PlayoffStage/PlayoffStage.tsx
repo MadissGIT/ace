@@ -118,12 +118,22 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
 
   let canDelete = false;
   let stageId = stage?.stage_id;
-  if (stage && isOrganizer && Array.isArray(stage.brackets) && stage.brackets.length > 0) {
-    const mainBracket = stage.brackets.find(b => b.type === 'main') || stage.brackets[0];
-    if (mainBracket && mainBracket.rounds.length > 0) {
-      const finalRound = mainBracket.rounds[mainBracket.rounds.length - 1];
-      if (finalRound && finalRound.matches.length > 0) {
-        canDelete = !finalRound.matches[0].played;
+  if (stage && isOrganizer) {
+    // Пустую сетку (без bracket'ов или без матчей) удалять можно всегда
+    const brackets = Array.isArray(stage.brackets) ? stage.brackets : [];
+    if (brackets.length === 0) {
+      canDelete = true;
+    } else {
+      const mainBracket = brackets.find(b => b.type === 'main') || brackets[0];
+      if (!mainBracket || mainBracket.rounds.length === 0) {
+        canDelete = true;
+      } else {
+        const finalRound = mainBracket.rounds[mainBracket.rounds.length - 1];
+        if (!finalRound || finalRound.matches.length === 0) {
+          canDelete = true;
+        } else {
+          canDelete = !finalRound.matches[0].played;
+        }
       }
     }
   }
@@ -262,7 +272,23 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
   if (error) return <div style={{ color: 'red' }}>{error}</div>;
   if (!stage || !stage.brackets) return null;
   if (!Array.isArray(stage.brackets) || stage.brackets.length === 0) {
-    return <div style={{ color: '#888', textAlign: 'center', margin: '32px 0' }}>Олимпийская сетка не создана или пуста.</div>;
+    return (
+      <div style={{ textAlign: 'center', margin: '32px 0' }}>
+        <div style={{ color: '#888', marginBottom: 12 }}>Олимпийская сетка не создана или пуста.</div>
+        {canDelete && (
+          <>
+            <button
+              style={{ background: '#f95e1b', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 16px', fontWeight: 600, cursor: 'pointer' }}
+              onClick={handleDeleteGrid}
+              disabled={deleteLoading}
+            >
+              {deleteLoading ? 'Удаление...' : 'Удалить пустую сетку'}
+            </button>
+            {deleteError && <div style={{ color: 'red', marginTop: 6 }}>{deleteError}</div>}
+          </>
+        )}
+      </div>
+    );
   }
 
   return (

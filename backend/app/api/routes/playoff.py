@@ -693,30 +693,30 @@ async def delete_playoff_stage(
         raise HTTPException(
             status_code=403, detail="Only organizer or admin can delete playoff grid"
         )
-    # Проверка: финал не сыгран
-    # Находим финальный раунд и матч
+    # Проверка: финал не сыгран.
+    # Если сетки/раунда/матча ещё нет (например, создан пустой stage без участников) —
+    # удаление разрешено, удалять-то нечего.
     bracket = await session.execute(
         select(PlayoffBracket).where(PlayoffBracket.stage_id == stage_id)
     )
     bracket = bracket.scalars().first()
-    if not bracket:
-        raise HTTPException(status_code=404, detail="Playoff bracket not found")
-    final_round = await session.execute(
-        select(PlayoffRound)
-        .where(PlayoffRound.bracket_id == bracket.id)
-        .order_by(PlayoffRound.number.desc())
-    )
-    final_round = final_round.scalars().first()
-    if not final_round:
-        raise HTTPException(status_code=404, detail="Final round not found")
-    final_match = await session.execute(
-        select(PlayoffMatch).where(PlayoffMatch.round_id == final_round.id)
-    )
-    final_match = final_match.scalars().first()
-    if not final_match or final_match.played:
-        raise HTTPException(
-            status_code=400, detail="Cannot delete playoff grid: final already played"
+    if bracket:
+        final_round = await session.execute(
+            select(PlayoffRound)
+            .where(PlayoffRound.bracket_id == bracket.id)
+            .order_by(PlayoffRound.number.desc())
         )
+        final_round = final_round.scalars().first()
+        if final_round:
+            final_match = await session.execute(
+                select(PlayoffMatch).where(PlayoffMatch.round_id == final_round.id)
+            )
+            final_match = final_match.scalars().first()
+            if final_match and final_match.played:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot delete playoff grid: final already played",
+                )
     await session.delete(stage)
     await session.commit()
     return {"status": "Playoff stage deleted"}
