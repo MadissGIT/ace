@@ -122,12 +122,14 @@ async def generate_bracket(session, participants, bracket_type, stage_id):
                     bye_idx += 1
             current_participants = next_round_participants
             continue
-        # Остальные раунды: стандартно, пары из current_participants
+        # Остальные раунды: пары из current_participants.
+        # В r > 0 None означает "победитель ещё не определён" (ждёт матч предыдущего раунда),
+        # поэтому НЕ протаскиваем известного игрока в следующий раунд — это сделает
+        # enter_match_result, когда реальный матч будет сыгран.
         round_size = len(current_participants)
         for i in range(0, round_size, 2):
             p1_id = current_participants[i]
             p2_id = current_participants[i + 1] if i + 1 < round_size else None
-            # Не пропускаем даже если оба None — чтобы ячейка была пустой
             match = PlayoffMatch(
                 round_id=round_model.id,
                 participant1_id=p1_id,
@@ -135,14 +137,7 @@ async def generate_bracket(session, participants, bracket_type, stage_id):
             )
             session.add(match)
             matches.append(match)
-            if p1_id is not None and p2_id is None:
-                next_round_participants.append(p1_id)
-            elif p2_id is not None and p1_id is None:
-                next_round_participants.append(p2_id)
-            elif p1_id is not None and p2_id is not None:
-                next_round_participants.append(None)
-            else:
-                next_round_participants.append(None)
+            next_round_participants.append(None)
         await session.flush()
         # Для следующего раунда снова заполняем current_participants до нужной длины (половина предыдущего)
         next_len = round_size // 2
