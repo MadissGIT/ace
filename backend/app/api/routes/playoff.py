@@ -293,18 +293,41 @@ async def create_playoff(
             main_participants = standard_four_group_seeding
         elif n_groups == 2:
             group1, group2 = group_participants
-            pairs = []
-            for i in range(0, main_count_per_group, 2):
-                # 1A-2B, 2A-1B, 3A-4B, 4A-3B, ...
-                if i + 1 < main_count_per_group:
-                    # Четная пара: iA-(i+1)B
+            total_players = min(main_count_per_group, len(group1)) + min(
+                main_count_per_group, len(group2)
+            )
+            pow2 = 1 << (total_players - 1).bit_length() if total_players > 0 else 1
+            has_byes = pow2 > total_players
+
+            if has_byes:
+                # Будут байи: используем порядок по местам (1A, 1B, 2A, 2B, ...).
+                # Тогда generate_bracket даст байи реальным топ-сидам (1A, 1B),
+                # а одинаковые места из разных групп встретятся в 1/4 финала.
+                for i in range(main_count_per_group):
+                    if i < len(group1):
+                        main_participants.append(group1[i])
+                    if i < len(group2):
+                        main_participants.append(group2[i])
+            else:
+                # Без байев: кросс-групповая разводка (1A vs 2B, 2A vs 1B, ...),
+                # чтобы 1-е места не встречались в 1-м раунде.
+                pairs = []
+                i = 0
+                while i + 1 < main_count_per_group:
                     pairs.append((i, i + 1))
-                    # Следом нечетная: (i+1)A-iB
                     pairs.append((i + 1, i))
-            for idx_a, idx_b in pairs:
-                if idx_a < len(group1) and idx_b < len(group2):
-                    main_participants.append(group1[idx_a])
-                    main_participants.append(group2[idx_b])
+                    i += 2
+                for idx_a, idx_b in pairs:
+                    if idx_a < len(group1) and idx_b < len(group2):
+                        main_participants.append(group1[idx_a])
+                        main_participants.append(group2[idx_b])
+                # Защита от нечётного main_count_per_group — забирать
+                # оставшиеся места из обеих групп, иначе они теряются
+                if i < main_count_per_group:
+                    if i < len(group1):
+                        main_participants.append(group1[i])
+                    if i < len(group2):
+                        main_participants.append(group2[i])
         else:
             # Для большего числа групп: поочередно по местам
             for i in range(main_count_per_group):
