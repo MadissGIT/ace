@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Registration Test</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: #f4f4f5;
+        color: #18181b;
+      }
+
+      main {
+        width: min(960px, calc(100% - 24px));
+        margin: 24px auto;
+      }
+
+      section {
+        background: #fff;
+        border: 1px solid #d4d4d8;
+        border-radius: 6px;
+        padding: 16px;
+        margin-bottom: 12px;
+      }
+
+      h1 {
+        font-size: 22px;
+        margin: 0 0 16px;
+      }
+
+      h2 {
+        font-size: 16px;
+        margin: 0 0 12px;
+      }
+
+      label {
+        display: block;
+        font-size: 13px;
+        font-weight: 700;
+        margin: 10px 0 4px;
+      }
+
+      input,
+      select {
+        width: 100%;
+        height: 36px;
+        border: 1px solid #a1a1aa;
+        border-radius: 4px;
+        padding: 8px;
+        font-size: 14px;
+        background: #fff;
+      }
+
+      button,
+      a.button {
+        min-height: 36px;
+        border: 0;
+        border-radius: 4px;
+        padding: 9px 12px;
+        margin-top: 12px;
+        background: #18181b;
+        color: #fff;
+        cursor: pointer;
+        font-size: 14px;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      button.secondary {
+        background: #52525b;
+      }
+
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      .actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .status {
+        padding: 8px;
+        border-radius: 4px;
+        background: #fef3c7;
+        color: #78350f;
+        font-size: 13px;
+      }
+
+      .status.ok {
+        background: #dcfce7;
+        color: #14532d;
+      }
+
+      .status.bad {
+        background: #fee2e2;
+        color: #7f1d1d;
+      }
+
+      pre {
+        min-height: 150px;
+        overflow: auto;
+        margin: 0;
+        padding: 12px;
+        background: #18181b;
+        color: #e4e4e7;
+        border-radius: 4px;
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .hidden {
+        display: none;
+      }
+
+      @media (max-width: 720px) {
+        .row {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Registration Test</h1>
+
+      <section>
+        <h2>1. Verification</h2>
+        <div class="row">
+          <div>
+            <label for="apiBase">API base</label>
+            <input id="apiBase" value="/api/v1" />
+          </div>
+          <div>
+            <label for="provider">Provider</label>
+            <select id="provider">
+              <option value="max">MAX</option>
+              <option value="vk">VK</option>
+            </select>
+          </div>
+        </div>
+
+        <label for="phone">Phone</label>
+        <input id="phone" value="79990000000" />
+
+        <div class="actions">
+          <button id="createSessionBtn">Create verification session</button>
+          <button id="checkStatusBtn" class="secondary" disabled>Check status</button>
+          <button id="togglePollingBtn" class="secondary" disabled>Start polling</button>
+          <a id="externalLink" class="button hidden" href="#" target="_blank" rel="noreferrer">Open provider</a>
+        </div>
+
+        <p id="sessionStatus" class="status">No verification session yet.</p>
+      </section>
+
+      <section>
+        <h2>2. Signup</h2>
+        <div class="row">
+          <div>
+            <label for="email">Email</label>
+            <input id="email" value="registration-test@example.com" />
+          </div>
+          <div>
+            <label for="password">Password</label>
+            <input id="password" value="password123" />
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label for="surname">Surname</label>
+            <input id="surname" value="Ivanov" />
+          </div>
+          <div>
+            <label for="name">Name</label>
+            <input id="name" value="Ivan" />
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label for="patronymic">Patronymic</label>
+            <input id="patronymic" value="Ivanovich" />
+          </div>
+          <div>
+            <label for="birthDate">Birth date</label>
+            <input id="birthDate" type="date" value="2010-01-01" />
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label for="sexId">Sex ID</label>
+            <input id="sexId" value="1" />
+          </div>
+          <div>
+            <label for="regionId">Region ID</label>
+            <input id="regionId" value="1" />
+          </div>
+        </div>
+
+        <label for="registrationToken">Verified registration token</label>
+        <input id="registrationToken" readonly />
+
+        <button id="signupBtn" disabled>Signup</button>
+      </section>
+
+      <section>
+        <h2>Last response</h2>
+        <pre id="output">{}</pre>
+      </section>
+    </main>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+
+      let registrationToken = "";
+      let pendingProvider = $("provider").value;
+      let pollingTimer = null;
+      let verified = false;
+
+      function apiBase() {
+        return $("apiBase").value.replace(/\/+$/, "");
+      }
+
+      function show(data) {
+        $("output").textContent = JSON.stringify(data, null, 2);
+      }
+
+      function setStatus(text, kind) {
+        const el = $("sessionStatus");
+        el.textContent = text;
+        el.className = "status" + (kind ? " " + kind : "");
+      }
+
+      function setExternalLink(url, text) {
+        $("externalLink").href = url;
+        $("externalLink").textContent = text;
+        $("externalLink").classList.remove("hidden");
+      }
+
+      function clearExternalLink() {
+        $("externalLink").classList.add("hidden");
+        $("externalLink").href = "#";
+      }
+
+      async function request(path, options = {}) {
+        const response = await fetch(apiBase() + path, {
+          ...options,
+          headers: {
+            "Content-Type": "application/json",
+            ...(options.headers || {}),
+          },
+        });
+        const text = await response.text();
+        const data = text ? JSON.parse(text) : {};
+        if (!response.ok) {
+          throw { status: response.status, data };
+        }
+        return data;
+      }
+
+      function stopPolling() {
+        if (!pollingTimer) return;
+        clearInterval(pollingTimer);
+        pollingTimer = null;
+        $("togglePollingBtn").textContent = "Start polling";
+      }
+
+      function setVerified(token, provider) {
+        registrationToken = token;
+        pendingProvider = provider;
+        verified = true;
+        $("registrationToken").value = token;
+        $("signupBtn").disabled = false;
+        $("checkStatusBtn").disabled = false;
+        $("togglePollingBtn").disabled = true;
+        stopPolling();
+        setStatus(provider.toUpperCase() + " verified. Signup is available.", "ok");
+      }
+
+      async function createSession() {
+        try {
+          stopPolling();
+          verified = false;
+          registrationToken = "";
+          $("registrationToken").value = "";
+          $("signupBtn").disabled = true;
+          $("checkStatusBtn").disabled = true;
+          $("togglePollingBtn").disabled = true;
+          clearExternalLink();
+
+          const provider = $("provider").value;
+          pendingProvider = provider;
+          const phone = $("phone").value.replace(/\D/g, "");
+
+          if (provider === "max") {
+            const data = await request("/max/registration/session", {
+              method: "POST",
+              body: JSON.stringify({ phone_number: phone }),
+            });
+            registrationToken = data.registration_token;
+            $("registrationToken").value = registrationToken;
+            $("checkStatusBtn").disabled = false;
+            $("togglePollingBtn").disabled = false;
+            setExternalLink(data.bot_link, "Open MAX bot");
+            setStatus("MAX session created. Open bot and share phone.", "");
+            show(data);
+            return;
+          }
+
+          const data = await request("/vk/registration/session", {
+            method: "POST",
+            body: JSON.stringify({
+              phone_number: phone,
+              return_path: "/registration-test.html",
+            }),
+          });
+          setExternalLink(data.authorization_url, "Open VK");
+          setStatus("VK session created. Redirecting to VK...", "");
+          show(data);
+          window.location.href = data.authorization_url;
+        } catch (error) {
+          setStatus("Create session failed.", "bad");
+          show(error);
+        }
+      }
+
+      async function checkStatus() {
+        if (!registrationToken) return;
+        try {
+          const path =
+            pendingProvider === "vk"
+              ? "/vk/registration/status/"
+              : "/max/registration/status/";
+          const data = await request(path + encodeURIComponent(registrationToken));
+          verified = Boolean(data.verified);
+          $("signupBtn").disabled = !verified;
+          setStatus(
+            "Status: " + data.status + ", verified: " + data.verified,
+            verified ? "ok" : ""
+          );
+          show(data);
+          if (verified) {
+            stopPolling();
+          }
+        } catch (error) {
+          setStatus("Status check failed.", "bad");
+          show(error);
+        }
+      }
+
+      function togglePolling() {
+        if (pollingTimer) {
+          stopPolling();
+          return;
+        }
+        checkStatus();
+        pollingTimer = setInterval(checkStatus, 3000);
+        $("togglePollingBtn").textContent = "Stop polling";
+      }
+
+      async function signup() {
+        try {
+          const provider = pendingProvider;
+          const body = {
+            email: $("email").value,
+            password: $("password").value,
+            name: $("name").value,
+            surname: $("surname").value,
+            patronymic: $("patronymic").value,
+            phone_number: $("phone").value.replace(/\D/g, ""),
+            birth_date: $("birthDate").value,
+            sex_id: Number($("sexId").value),
+            region_id: Number($("regionId").value),
+            verification_provider: provider,
+            max_registration_token: provider === "max" ? $("registrationToken").value : null,
+            vk_registration_token: provider === "vk" ? $("registrationToken").value : null,
+          };
+          const data = await request("/users/signup", {
+            method: "POST",
+            body: JSON.stringify(body),
+          });
+          setStatus("Signup succeeded.", "ok");
+          show(data);
+        } catch (error) {
+          setStatus("Signup failed.", "bad");
+          show(error);
+        }
+      }
+
+      function readCallbackParams() {
+        const params = new URLSearchParams(window.location.search);
+        const vkToken = params.get("vk_registration_token");
+        const vkStatus = params.get("vk_status");
+        const vkError = params.get("vk_error");
+        if (vkToken && vkStatus === "verified") {
+          $("provider").value = "vk";
+          setVerified(vkToken, "vk");
+          window.history.replaceState({}, "", window.location.pathname);
+        } else if (vkError) {
+          $("provider").value = "vk";
+          setStatus(vkError, "bad");
+          show({ error: vkError });
+          window.history.replaceState({}, "", window.location.pathname);
+        }
+      }
+
+      $("createSessionBtn").addEventListener("click", createSession);
+      $("checkStatusBtn").addEventListener("click", checkStatus);
+      $("togglePollingBtn").addEventListener("click", togglePolling);
+      $("signupBtn").addEventListener("click", signup);
+      $("provider").addEventListener("change", () => {
+        stopPolling();
+        clearExternalLink();
+        registrationToken = "";
+        verified = false;
+        pendingProvider = $("provider").value;
+        $("registrationToken").value = "";
+        $("signupBtn").disabled = true;
+        $("checkStatusBtn").disabled = true;
+        $("togglePollingBtn").disabled = true;
+        setStatus("No verification session yet.", "");
+      });
+
+      readCallbackParams();
+    </script>
+  </body>
+</html>

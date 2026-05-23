@@ -13,6 +13,7 @@ router = APIRouter()
 
 class VkRegistrationSessionCreate(BaseModel):
     phone_number: str | None = None
+    return_path: str | None = None
 
 
 class VkRegistrationSessionPublic(BaseModel):
@@ -31,7 +32,10 @@ class VkRegistrationStatusPublic(BaseModel):
 async def create_vk_registration_session(
     body: VkRegistrationSessionCreate,
 ) -> VkRegistrationSessionPublic:
-    session = await vk_registration.create_registration_session(body.phone_number)
+    session = await vk_registration.create_registration_session(
+        phone_number=body.phone_number,
+        return_path=body.return_path,
+    )
     return VkRegistrationSessionPublic(
         registration_token=session["registration_token"],
         authorization_url=session["authorization_url"],
@@ -73,6 +77,7 @@ async def handle_vk_registration_callback(request: Request) -> RedirectResponse:
 
     return RedirectResponse(
         vk_registration.build_frontend_redirect(
+            path=verified_session.get("return_path") or "/registration",
             vk_registration_token=verified_session["registration_token"],
             vk_status="verified",
         )
