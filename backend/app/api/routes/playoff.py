@@ -76,19 +76,13 @@ async def generate_bracket(session, participants, bracket_type, stage_id):
     session.add(bracket)
     await session.flush()
     rounds = int(math.log2(pow2))
-    # Первый раунд: формируем пары и одиночные матчи (автовины)
+    # Топ-сиды получают байи, нижние сиды играют в первом раунде.
+    # Чередование pair/bye гарантирует, что победитель пары встретит нужный топ-сид в следующем раунде.
+    bye_ids = ids[:byes]   # топ-сиды → автовыход
+    play_ids = ids[byes:]  # нижние сиды → играют в 1-м раунде
     pairs = []
-    singles = []
-    used = set()
-    # Сначала формируем пары
-    for i in range(0, n - byes, 2):
-        pairs.append((ids[i], ids[i + 1]))
-        used.add(ids[i])
-        used.add(ids[i + 1])
-    # Оставшиеся — одиночники (автовины)
-    for i in range(n - byes, n):
-        singles.append(ids[i])
-        used.add(ids[i])
+    for i in range(0, len(play_ids), 2):
+        pairs.append((play_ids[i], play_ids[i + 1]))
     current_participants = []
     for r in range(rounds):
         round_model = PlayoffRound(number=r + 1, bracket_id=bracket.id)
@@ -97,40 +91,36 @@ async def generate_bracket(session, participants, bracket_type, stage_id):
         matches = []
         next_round_participants = []
         if r == 0:
-            # Первый раунд: пары и одиночники
-            for p1_id, p2_id in pairs:
-                match = PlayoffMatch(
-                    round_id=round_model.id, participant1_id=p1_id, participant2_id=p2_id
-                )
-                session.add(match)
-                matches.append(match)
-                # Победитель определится после матча, но для корректного формирования сетки — запоминаем пару (будет заполнено после ввода результата)
-                next_round_participants.append((p1_id, p2_id))
-            for p1_id in singles:
-                match = PlayoffMatch(
-                    round_id=round_model.id,
-                    participant1_id=p1_id,
-                    participant2_id=None,
-                    score1=0,
-                    score2=0,
-                    played=True,
-                    winner_id=p1_id,
-                )
-                session.add(match)
-                matches.append(match)
-                next_round_participants.append(p1_id)
-            # После первого раунда: формируем current_participants длиной pow2//2, заполняя пустыми None если нужно
-            total_matches = len(pairs) + len(singles)
-            next_len = total_matches
-            current_participants = []
-            for item in next_round_participants:
-                if isinstance(item, int):
-                    current_participants.append(item)
-                else:
-                    current_participants.append(None)
-            # Если вдруг не хватает до полной длины (например, 4 матча — 8 ячеек), дополняем None
-            while len(current_participants) < next_len:
-                current_participants.append(None)
+            # Чередуем: пара → бай → пара → бай ...
+            # Это гарантирует, что в следующем раунде победитель пары встречает топ-сид рядом с ним
+            pair_idx = 0
+            bye_idx = 0
+            while pair_idx < len(pairs) or bye_idx < len(bye_ids):
+                if pair_idx < len(pairs):
+                    p1_id, p2_id = pairs[pair_idx]
+                    match = PlayoffMatch(
+                        round_id=round_model.id, participant1_id=p1_id, participant2_id=p2_id
+                    )
+                    session.add(match)
+                    matches.append(match)
+                    next_round_participants.append(None)
+                    pair_idx += 1
+                if bye_idx < len(bye_ids):
+                    p1_id = bye_ids[bye_idx]
+                    match = PlayoffMatch(
+                        round_id=round_model.id,
+                        participant1_id=p1_id,
+                        participant2_id=None,
+                        score1=0,
+                        score2=0,
+                        played=True,
+                        winner_id=p1_id,
+                    )
+                    session.add(match)
+                    matches.append(match)
+                    next_round_participants.append(p1_id)
+                    bye_idx += 1
+            current_participants = next_round_participants
             continue
         # Остальные раунды: стандартно, пары из current_participants
         round_size = len(current_participants)

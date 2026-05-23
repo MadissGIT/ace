@@ -41,6 +41,8 @@ interface PlayoffStageProps {
   isOrganizer?: boolean;
 }
 
+const BASE_SLOT_HEIGHT = 160; // px — минимальный слот для одного матча
+
 const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMap, isOrganizer }) => {
   const [stage, setStage] = useState<PlayoffStageSchema | null>(null);
   const [loading, setLoading] = useState(true);
@@ -143,7 +145,7 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
     }
   };
 
-  const renderMatch = (match: PlayoffMatch, cellExtraClass?: string) => {
+  const renderMatch = (match: PlayoffMatch) => {
     const isEditing = editingMatchId === match.match_id;
     const showInputs = isOrganizer && (!match.played || isEditing);
 
@@ -158,7 +160,7 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
       !isNaN(parseInt(localScores.score1, 10)) &&
       !isNaN(parseInt(localScores.score2, 10));
 
-    const cellClass = [styles.matchCell, cellExtraClass].filter(Boolean).join(' ');
+    const cellClass = styles.matchCell;
 
     return (
       <div key={match.match_id} className={cellClass}>
@@ -286,39 +288,28 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
             <div className={styles.bracketGrid}>
               {bracket.rounds.map((round, roundIdx) => {
                 const isLastRound = roundIdx === bracket.rounds.length - 1;
+                const slotHeight = BASE_SLOT_HEIGHT * Math.pow(2, roundIdx);
                 const sortedMatches = round.matches
                   .slice()
                   .sort((a, b) => (a.order ?? a.match_id) - (b.order ?? b.match_id));
 
-                // Группируем матчи по парам для CSS-коннекторов
-                const matchGroups: PlayoffMatch[][] = [];
-                if (isLastRound) {
-                  sortedMatches.forEach(m => matchGroups.push([m]));
-                } else {
-                  for (let i = 0; i < sortedMatches.length; i += 2) {
-                    matchGroups.push(sortedMatches.slice(i, i + 2));
-                  }
-                }
-
-                const isFirstRound = roundIdx === 0;
-
                 return (
                   <div key={round.round_id} className={styles.roundColumn}>
                     <div className={styles.roundName}>{round.name}</div>
-                    {matchGroups.map((group, groupIdx) => {
-                      const isPair = group.length === 2;
+                    {sortedMatches.map((match, matchIdx) => {
+                      const slotClasses = [styles.matchSlot];
+                      if (!isLastRound) {
+                        if (matchIdx % 2 === 0) slotClasses.push(styles.matchSlotFirst);
+                        else slotClasses.push(styles.matchSlotLast);
+                      }
+                      if (roundIdx > 0) slotClasses.push(styles.matchSlotIncoming);
                       return (
                         <div
-                          key={groupIdx}
-                          className={isPair ? styles.matchPairWrapper : styles.matchSingleWrapper}
+                          key={match.match_id}
+                          className={slotClasses.join(' ')}
+                          style={{ height: slotHeight }}
                         >
-                          {group.map((match, matchIdx) => {
-                            const extraClasses: string[] = [];
-                            if (isPair && matchIdx === 0) extraClasses.push(styles.matchCellFirst);
-                            if (isPair && matchIdx === 1) extraClasses.push(styles.matchCellLast);
-                            if (!isFirstRound) extraClasses.push(styles.matchCellIncoming);
-                            return renderMatch(match, extraClasses.join(' ') || undefined);
-                          })}
+                          {renderMatch(match)}
                         </div>
                       );
                     })}

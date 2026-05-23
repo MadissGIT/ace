@@ -47,31 +47,28 @@
   text-transform: uppercase;
 }
 
-// ─── Группировка матчей ───────────────────────────────────────────────────────
+// ─── Slot-based расположение матчей ──────────────────────────────────────────
+// Каждый матч помещается в слот высотой BASE_SLOT_HEIGHT * 2^roundIdx.
+// Это гарантирует, что центр слота раунда N совпадает с серединой двух слотов раунда N-1,
+// и коннекторы всегда выровнены математически точно.
 
-.matchPairWrapper {
-  position: relative;
+.matchSlot {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 16px;
+  align-items: center;
+  justify-content: center;
+  position: relative;
   width: 100%;
 }
 
-.matchSingleWrapper {
-  width: 100%;
-  margin-bottom: 16px;
-}
-
-// Верхний матч в паре — правый «рукав» вниз
-.matchCellFirst {
+// Верхний матч в паре (чётный индекс) — правый «рукав» вниз до конца слота
+.matchSlotFirst {
   &::after {
     content: '';
     position: absolute;
     top: 50%;
     right: -17px;
     width: 17px;
-    height: calc(50% + 8px);
+    height: 50%;
     border-top: 2px solid #c8cdd4;
     border-right: 2px solid #c8cdd4;
     pointer-events: none;
@@ -79,15 +76,15 @@
   }
 }
 
-// Нижний матч в паре — правый «рукав» вверх
-.matchCellLast {
+// Нижний матч в паре (нечётный индекс) — правый «рукав» вверх до начала слота
+.matchSlotLast {
   &::after {
     content: '';
     position: absolute;
     bottom: 50%;
     right: -17px;
     width: 17px;
-    height: calc(50% + 8px);
+    height: 50%;
     border-bottom: 2px solid #c8cdd4;
     border-right: 2px solid #c8cdd4;
     pointer-events: none;
@@ -95,8 +92,8 @@
   }
 }
 
-// Входная линия слева (все матчи кроме первого раунда)
-.matchCellIncoming {
+// Входная горизонтальная линия слева (раунды кроме первого)
+.matchSlotIncoming {
   &::before {
     content: '';
     position: absolute;
