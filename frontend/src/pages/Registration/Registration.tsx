@@ -1,13 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import styles from './Registration.module.scss';
 import { apiRequest } from '../../utils/apiRequest.ts';
 import { saveToken, setAuthHeader } from '../../utils/serviceToken.ts';
 import axios from 'axios';
 import { ArrowLeft, Eye, EyeOff } from 'lucide-react';
 
+type VerificationProvider = 'max' | 'vk';
+
 const Registration: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [formData, setFormData] = useState({
     fullName: '',
@@ -40,10 +43,14 @@ const Registration: React.FC = () => {
 
   const [dateDisplay, setDateDisplay] = useState('');
 
+  const [verificationProvider, setVerificationProvider] = useState<VerificationProvider>('max');
   const [maxRegistrationToken, setMaxRegistrationToken] = useState<string | null>(null);
   const [maxBotLink, setMaxBotLink] = useState<string | null>(null);
   const [maxVerified, setMaxVerified] = useState(false);
   const [maxVerifying, setMaxVerifying] = useState(false);
+  const [vkRegistrationToken, setVkRegistrationToken] = useState<string | null>(null);
+  const [vkVerified, setVkVerified] = useState(false);
+  const [vkVerifying, setVkVerifying] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPolling = () => {
@@ -58,7 +65,7 @@ const Registration: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!maxRegistrationToken || maxVerified) return;
+    if (verificationProvider !== 'max' || !maxRegistrationToken || maxVerified) return;
 
     pollingRef.current = setInterval(async () => {
       try {
@@ -79,7 +86,7 @@ const Registration: React.FC = () => {
     }, 3000);
 
     return () => stopPolling();
-  }, [maxRegistrationToken, maxVerified]);
+  }, [verificationProvider, maxRegistrationToken, maxVerified]);
 
   const toggleShowPassword = (field: 'password' | 'confirmPassword') => () => {
     setShowPassword(prev => ({ ...prev, [field]: !prev[field] }));
@@ -111,6 +118,10 @@ const Registration: React.FC = () => {
     setMaxBotLink(null);
     setMaxVerified(false);
     setMaxVerifying(false);
+    setVerificationProvider('max');
+    setVkRegistrationToken(null);
+    setVkVerified(false);
+    setVkVerifying(false);
     stopPolling();
   };
 
@@ -131,6 +142,33 @@ const Registration: React.FC = () => {
   useEffect(() => {
     resetFormAndErrors();
   }, []);
+
+  useEffect(() => {
+    const vkToken = searchParams.get('vk_registration_token');
+    const vkStatus = searchParams.get('vk_status');
+    const vkError = searchParams.get('vk_error');
+
+    if (vkToken && vkStatus === 'verified') {
+      setVerificationProvider('vk');
+      setVkRegistrationToken(vkToken);
+      setVkVerified(true);
+      setVkVerifying(false);
+      setMaxRegistrationToken(null);
+      setMaxBotLink(null);
+      setMaxVerified(false);
+      setMaxVerifying(false);
+      stopPolling();
+      setApiError(null);
+      setSearchParams({}, { replace: true });
+    } else if (vkError) {
+      setVerificationProvider('vk');
+      setVkRegistrationToken(null);
+      setVkVerified(false);
+      setVkVerifying(false);
+      setApiError(vkError);
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   const handleBackClick = () => {
     if (document.activeElement instanceof HTMLElement) {
@@ -257,14 +295,39 @@ const validateField = (fieldName: string, value: string | number | null) => {
     return validateFullName() && emailValid && phoneValid && passwordValid && confirmPasswordValid && sexValid && regionValid;
   };
 
+  const identityVerified = verificationProvider === 'max' ? maxVerified : vkVerified;
+
+  const selectVerificationProvider = (provider: VerificationProvider) => {
+    setVerificationProvider(provider);
+    setApiError(null);
+
+    if (provider === 'max') {
+      setVkRegistrationToken(null);
+      setVkVerified(false);
+      setVkVerifying(false);
+    } else {
+      setMaxRegistrationToken(null);
+      setMaxBotLink(null);
+      setMaxVerified(false);
+      setMaxVerifying(false);
+      stopPolling();
+    }
+  };
+
   const initiateMaxVerification = async () => {
     if (!formData.phone) return;
+    selectVerificationProvider('max');
     setApiError(null);
     setMaxVerifying(true);
 
     try {
       const phone = formData.phone.replace(/\D/g, '');
       const response = await apiRequest('max/registration/session', 'POST', { phone_number: phone }, false);
+      if (response?.error) {
+        setApiError(response.detail || 'Не удалось создать сессию MAX. Попробуйте снова.');
+        setMaxVerifying(false);
+        return;
+      }
       if (response?.registration_token && response?.bot_link) {
         setMaxRegistrationToken(response.registration_token);
         setMaxBotLink(response.bot_link);
@@ -282,8 +345,38 @@ const validateField = (fieldName: string, value: string | number | null) => {
     }
   };
 
+  const initiateVkVerification = async () => {
+    if (!formData.phone) return;
+    selectVerificationProvider('vk');
+    setApiError(null);
+    setVkVerifying(true);
+
+    try {
+      const phone = formData.phone.replace(/\D/g, '');
+      const response = await apiRequest('vk/registration/session', 'POST', { phone_number: phone }, false);
+      if (response?.error) {
+        setApiError(response.detail || 'Не удалось создать сессию VK. Попробуйте снова.');
+        setVkVerifying(false);
+        return;
+      }
+      if (response?.authorization_url) {
+        window.location.href = response.authorization_url;
+        return;
+      }
+      setApiError('Не удалось создать сессию VK. Попробуйте снова.');
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.data?.detail) {
+        setApiError(error.response.data.detail);
+      } else {
+        setApiError('Ошибка при инициализации VK верификации.');
+      }
+    }
+    setVkVerifying(false);
+  };
+
   const registerUser = async () => {
-    if (!maxRegistrationToken) return;
+    if (verificationProvider === 'max' && !maxRegistrationToken) return;
+    if (verificationProvider === 'vk' && !vkRegistrationToken) return;
 
     const [surname, name, patronymic] = formData.fullName.split(' ');
     const selectedSex = sexOptions.find((sex) => sex.name === formData.sex);
@@ -299,13 +392,17 @@ const validateField = (fieldName: string, value: string | number | null) => {
       birth_date: formData.birth_date,
       sex_id,
       region_id: formData.region_id,
-      max_registration_token: maxRegistrationToken,
+      verification_provider: verificationProvider,
+      max_registration_token: verificationProvider === 'max' ? maxRegistrationToken : null,
+      vk_registration_token: verificationProvider === 'vk' ? vkRegistrationToken : null,
     };
 
     try {
       const response = await apiRequest('users/signup', 'POST', userData, false);
-      if (response) {
+      if (response && !response.error) {
         await login(userData.email, userData.password);
+      } else {
+        setApiError(response?.detail || 'Произошла ошибка при регистрации. Попробуйте снова.');
       }
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.data?.detail) {
@@ -351,8 +448,8 @@ const validateField = (fieldName: string, value: string | number | null) => {
     e.preventDefault();
     setApiError(null);
     if (!validateForm()) return;
-    if (!maxVerified) {
-      setApiError('Подтвердите номер телефона через MAX перед регистрацией.');
+    if (!identityVerified) {
+      setApiError('Подтвердите личность перед регистрацией.');
       return;
     }
     await registerUser();
@@ -535,37 +632,89 @@ const navigateToLogin = () => {
         </div>
 
         <div className={styles.formGroup}>
-          {maxVerified ? (
-            <div className={styles.maxVerifiedMessage}>
-              MAX подтверждён
-            </div>
-          ) : maxBotLink ? (
-            <div className={styles.maxLinkWrapper}>
-              <a
-                href={maxBotLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={styles.maxButton}
-              >
-                Открыть <img src="/maxicon.png" alt="MAX" className={styles.maxIcon} /> для подтверждения
-              </a>
-              <p className={styles.maxHint}>Ожидание подтверждения...</p>
-            </div>
-          ) : (
+          <div className={styles.labelWrapper}>
+            <label className={styles.label}>Подтверждение личности</label>
+          </div>
+
+          <div className={styles.verificationTabs}>
             <button
               type="button"
-              className={styles.maxButton}
-              onClick={initiateMaxVerification}
-              disabled={maxVerifying || !formData.phone || !!errors.phone}
+              className={`${styles.verificationTab} ${verificationProvider === 'max' ? styles.active : ''}`}
+              onClick={() => selectVerificationProvider('max')}
             >
-              {maxVerifying ? (
-                'Создание сессии...'
-              ) : (
-                <>
-                  Подтвердить через <img src="/maxicon.png" alt="MAX" className={styles.maxIcon} />
-                </>
-              )}
+              <img src="/maxicon.png" alt="MAX" className={styles.providerIcon} />
+              MAX
             </button>
+            <button
+              type="button"
+              className={`${styles.verificationTab} ${verificationProvider === 'vk' ? styles.active : ''}`}
+              onClick={() => selectVerificationProvider('vk')}
+            >
+              <img src="/vkicon.png" alt="VK" className={styles.providerIcon} />
+              VK
+            </button>
+          </div>
+
+          {verificationProvider === 'max' && (
+            <>
+              {maxVerified ? (
+                <div className={styles.verifiedMessage}>
+                  MAX подтверждён
+                </div>
+              ) : maxBotLink ? (
+                <div className={styles.verificationLinkWrapper}>
+                  <a
+                    href={maxBotLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={styles.providerButton}
+                  >
+                    Открыть <img src="/maxicon.png" alt="MAX" className={styles.providerIcon} />
+                  </a>
+                  <p className={styles.providerHint}>Ожидание подтверждения...</p>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className={styles.providerButton}
+                  onClick={initiateMaxVerification}
+                  disabled={maxVerifying || !formData.phone || !!errors.phone}
+                >
+                  {maxVerifying ? (
+                    'Создание сессии...'
+                  ) : (
+                    <>
+                      Подтвердить через <img src="/maxicon.png" alt="MAX" className={styles.providerIcon} />
+                    </>
+                  )}
+                </button>
+              )}
+            </>
+          )}
+
+          {verificationProvider === 'vk' && (
+            <>
+              {vkVerified ? (
+                <div className={styles.verifiedMessage}>
+                  VK подтверждён
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className={`${styles.providerButton} ${styles.vkButton}`}
+                  onClick={initiateVkVerification}
+                  disabled={vkVerifying || !formData.phone || !!errors.phone}
+                >
+                  {vkVerifying ? (
+                    'Переход в VK...'
+                  ) : (
+                    <>
+                      Подтвердить через <img src="/vkicon.png" alt="VK" className={styles.providerIcon} />
+                    </>
+                  )}
+                </button>
+              )}
+            </>
           )}
         </div>
 
@@ -578,7 +727,7 @@ const navigateToLogin = () => {
             errors.password ||
             errors.sex ||
             errors.region_id ||
-            !maxVerified
+            !identityVerified
           }
         >
           Зарегистрироваться

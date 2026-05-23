@@ -5,7 +5,7 @@ from backend.app.api.routes import (
     sex, categories, regions,
     trainers, news, participants,
     transactions, uploads, healthcheck,
-    groups, playoff, max_registration,
+    groups, playoff, max_registration, vk_registration,
 )
 
 api_router = APIRouter()
@@ -53,4 +53,7 @@ api_router.include_router(
 )
 api_router.include_router(
     max_registration.router, tags=["max-registration"], prefix="/max/registration"
+)
+api_router.include_router(
+    vk_registration.router, tags=["vk-registration"], prefix="/vk/registration"
 )

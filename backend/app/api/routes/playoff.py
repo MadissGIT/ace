@@ -167,6 +167,32 @@ FOUR_GROUP_MAIN_SEEDING = [
 ]
 
 
+THREE_GROUP_TWO_QUALIFIER_MAIN_SEEDING = [
+    (0, 0),  # 1A -> bye
+    (1, 0),  # 1B -> bye
+    (1, 1),  # 2B vs 1C
+    (2, 0),
+    (0, 1),  # 2A vs 2C
+    (2, 1),
+]
+
+
+def build_three_group_two_qualifier_main_seeding(group_participants):
+    """
+    Six-player playoff seeding for three groups with two qualifiers each.
+    With the current bracket generator the first two entries receive byes, then
+    entries 3-4 and 5-6 play the first round. This layout prevents same-group
+    pairings in the first playable round and in the matches after byes.
+    """
+    if len(group_participants) != 3 or any(len(plist) < 2 for plist in group_participants):
+        return None
+
+    return [
+        group_participants[group_index][place_index]
+        for group_index, place_index in THREE_GROUP_TWO_QUALIFIER_MAIN_SEEDING
+    ]
+
+
 def build_four_group_main_seeding(group_participants):
     """
     Standard 16-player playoff seeding for four groups with four qualifiers each.
@@ -284,8 +310,15 @@ async def create_playoff(
             if n_groups == 4 and main_count_per_group == 4
             else None
         )
+        three_group_two_qualifier_seeding = (
+            build_three_group_two_qualifier_main_seeding(group_participants)
+            if n_groups == 3 and main_count_per_group == 2
+            else None
+        )
         if standard_four_group_seeding:
             main_participants = standard_four_group_seeding
+        elif three_group_two_qualifier_seeding:
+            main_participants = three_group_two_qualifier_seeding
         elif n_groups == 2:
             group1, group2 = group_participants
             total_players = min(main_count_per_group, len(group1)) + min(

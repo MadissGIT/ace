@@ -2,7 +2,6 @@ import datetime
 import json
 import uuid
 from typing import Any, Optional
-from typing import Any, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -11,7 +10,7 @@ from sqlmodel import col, delete, func, select
 from dateutil.relativedelta import relativedelta
 
 from backend.app.crud import user as user_crud
-from backend.app.utils import max_registration
+from backend.app.utils import max_registration, vk_registration
 from backend.app.api.deps import (
     CurrentUser,
     SessionDep,
@@ -196,19 +195,54 @@ async def register_user(session: SessionDep, user_in: UserRegister) -> Any:
     if not sex:
         raise HTTPException(status_code=400, detail="Invalid sex")
 
-    max_session = await max_registration.require_verified_registration(
-        registration_token=user_in.max_registration_token,
-        phone_number=user_in.phone_number,
-    )
-    user_create = UserCreate.model_validate(
-        user_in,
-        update={
-            "max_user_id": max_session.get("max_user_id"),
-            "max_chat_id": max_session.get("max_chat_id"),
-        },
-    )
+    verification_provider = user_in.verification_provider.lower()
+    if verification_provider not in {"max", "vk"}:
+        raise HTTPException(status_code=400, detail="Invalid verification provider")
+
+    update_data: dict[str, Any] = {
+        "telegram_id": None,
+        "max_user_id": None,
+        "max_chat_id": None,
+        "vk_id": None,
+    }
+
+    if verification_provider == "max":
+        if not user_in.max_registration_token:
+            raise HTTPException(status_code=400, detail="MAX registration token is required")
+        max_session = await max_registration.require_verified_registration(
+            registration_token=user_in.max_registration_token,
+            phone_number=user_in.phone_number,
+        )
+        update_data.update(
+            {
+                "max_user_id": max_session.get("max_user_id"),
+                "max_chat_id": max_session.get("max_chat_id"),
+            }
+        )
+    else:
+        if not user_in.vk_registration_token:
+            raise HTTPException(status_code=400, detail="VK registration token is required")
+        vk_session = await vk_registration.require_verified_registration(
+            registration_token=user_in.vk_registration_token,
+            phone_number=user_in.phone_number,
+        )
+        vk_id = vk_session.get("vk_id")
+        if not vk_id:
+            raise HTTPException(status_code=400, detail="VK registration has no user id")
+        existing_vk_user = await user_crud.get_user_by_vk_id(session=session, vk_id=vk_id)
+        if existing_vk_user:
+            raise HTTPException(
+                status_code=400,
+                detail="The user with this VK ID already exists in the system",
+            )
+        update_data["vk_id"] = vk_id
+
+    user_create = UserCreate.model_validate(user_in, update=update_data)
     user = await user_crud.create_user(session=session, user_create=user_create)
-    await max_registration.mark_registration_used(user_in.max_registration_token)
+    if verification_provider == "max" and user_in.max_registration_token:
+        await max_registration.mark_registration_used(user_in.max_registration_token)
+    if verification_provider == "vk" and user_in.vk_registration_token:
+        await vk_registration.mark_registration_used(user_in.vk_registration_token)
     return user
 
 

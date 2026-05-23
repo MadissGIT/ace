@@ -277,6 +277,42 @@
   width: 100%;
 }
 
+.verificationTabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+}
+
+.verificationTab {
+  width: 100%;
+  padding: 10px 12px;
+  background: #ffffff;
+  color: #111827;
+  border: 1px solid #d1d5db;
+  border-radius: 12px;
+  font-family: 'Mulish', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: border-color 0.2s, background 0.2s, color 0.2s;
+
+  &:hover {
+    border-color: #f95e1b;
+  }
+
+  &.active {
+    background: #f95e1b;
+    border-color: #f95e1b;
+    color: #ffffff;
+  }
+}
+
+.providerButton,
 .maxButton {
   width: 100%;
   padding: 12px;
@@ -304,12 +340,26 @@
   }
 }
 
+.vkButton {
+  background: #0077ff;
+
+  &:hover:not(:disabled) {
+    background: #0065d9;
+  }
+
+  &:disabled {
+    background: #9cc8ff;
+  }
+}
+
+.providerIcon,
 .maxIcon {
   height: 20px;
   width: auto;
   vertical-align: middle;
 }
 
+.verificationLinkWrapper,
 .maxLinkWrapper {
   display: flex;
   flex-direction: column;
@@ -318,6 +368,7 @@
   width: 100%;
 }
 
+.providerHint,
 .maxHint {
   font-size: 12px;
   color: #9ca3af;
@@ -325,6 +376,7 @@
   margin: 0;
 }
 
+.verifiedMessage,
 .maxVerifiedMessage {
   width: 100%;
   padding: 12px;
@@ -335,5 +387,4 @@
   font-weight: 500;
   text-align: center;
 }
-
 

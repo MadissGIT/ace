@@ -25,6 +25,11 @@ async def get_user_by_email(session: AsyncSession, email: str) -> User | None:
     session_user = (await session.execute(statement)).scalar_one_or_none()
     return session_user
 
+async def get_user_by_vk_id(session: AsyncSession, vk_id: int) -> User | None:
+    statement = select(User).where(User.vk_id == vk_id)
+    session_user = (await session.execute(statement)).scalar_one_or_none()
+    return session_user
+
 async def authenticate(session: AsyncSession, email: str, password: str) -> User | None:
     db_user = await get_user_by_email(session=session, email=email)
 
