@@ -37,7 +37,17 @@ export const apiRequest = async (
     );
     
     if (!response.ok) {
-      return { error: true, status: response.status };
+      let errorBody: { detail?: string } | null = null;
+      try {
+        errorBody = await response.json();
+      } catch {
+        errorBody = null;
+      }
+      return {
+        error: true,
+        status: response.status,
+        detail: errorBody?.detail || "Ошибка запроса",
+      };
     }
     
     return response.json();

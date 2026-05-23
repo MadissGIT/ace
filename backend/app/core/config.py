@@ -55,6 +55,12 @@ class Settings(BaseSettings):
     MAX_BOT_LINK: str = ""
     MAX_REGISTRATION_TTL_SECONDS: int = 2400
     MAXBOT_INTERNAL_TOKEN: str = ""
+
+    VK_APP_ID: str = ""
+    VK_CLIENT_SECRET: str = ""
+    VK_REDIRECT_URI: str = ""
+    VK_SCOPE: str = "vkid.personal_info email phone"
+    VK_REGISTRATION_TTL_SECONDS: int = 600
     
     @computed_field
     @property
