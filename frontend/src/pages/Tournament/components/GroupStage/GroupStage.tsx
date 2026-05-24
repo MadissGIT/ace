@@ -393,14 +393,21 @@ const GroupStage: React.FC = () => {
     if (isNaN(s1) || isNaN(s2)) return;
 
     try {
+      // В клетке (строка = player1, столбец = player2) пользователь вводит
+      // "row_score / col_score". В БД score1 принадлежит participant1_id,
+      // а participant1_id не обязательно совпадает с player1 (строкой) —
+      // порядок зависит от того, как бэк создал матч.
+      // Поэтому смотрим, кто из игроков реально лежит в participant1_id.
       let score1: number;
       let score2: number;
-      if (editingCell.rowIndex > editingCell.colIndex) {
-        score1 = s2;
-        score2 = s1;
-      } else {
+      if (editingCell.participant1_id === editingCell.player1) {
+        // Игрок-строка лежит в participant1 → его счёт идёт в score1
         score1 = s1;
         score2 = s2;
+      } else {
+        // Игрок-строка лежит в participant2 → его счёт идёт в score2
+        score1 = s2;
+        score2 = s1;
       }
       await apiRequest(
         `groups/matches/${editingCell.matchId}`,
