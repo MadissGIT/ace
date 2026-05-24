@@ -160,6 +160,15 @@ const Registration: React.FC = () => {
       stopPolling();
       setApiError(null);
       setSearchParams({}, { replace: true });
+      const saved = sessionStorage.getItem('vk_registration_form');
+      if (saved) {
+        try {
+          const { formData: savedFormData, dateDisplay: savedDateDisplay } = JSON.parse(saved);
+          setFormData(savedFormData);
+          setDateDisplay(savedDateDisplay);
+        } catch {}
+        sessionStorage.removeItem('vk_registration_form');
+      }
     } else if (vkError) {
       setVerificationProvider('vk');
       setVkRegistrationToken(null);
@@ -360,6 +369,7 @@ const validateField = (fieldName: string, value: string | number | null) => {
         return;
       }
       if (response?.authorization_url) {
+        sessionStorage.setItem('vk_registration_form', JSON.stringify({ formData, dateDisplay }));
         window.location.href = response.authorization_url;
         return;
       }
