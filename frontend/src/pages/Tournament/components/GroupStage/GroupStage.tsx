@@ -56,6 +56,9 @@ interface PlayerWithStats extends Player {
   allMatchesPlayed: boolean;
   scores: Map<number, string>;
   matchIdMap: Map<number, number>;
+  /** Для каждого соперника — id игрока, который в БД лежит как participant1_id матча.
+   *  Нужно чтобы при сохранении счёта корректно мапить row/col на score1/score2. */
+  matchParticipant1Map: Map<number, number>;
 }
 
 interface GroupWithTable {
@@ -236,6 +239,7 @@ const GroupStage: React.FC = () => {
         conceded: number;
         scores: Map<number, string>;
         matchIdMap: Map<number, number>;
+        matchParticipant1Map: Map<number, number>;
         playedMatches: number;
       }>();
 
@@ -247,6 +251,7 @@ const GroupStage: React.FC = () => {
           conceded: 0,
           scores: new Map(),
           matchIdMap: new Map(),
+          matchParticipant1Map: new Map(),
           playedMatches: 0,
         });
       });
@@ -264,9 +269,11 @@ const GroupStage: React.FC = () => {
         const scoreStr = s1 != null && s2 != null ? `${s1}/${s2}` : '';
         stat1.scores.set(p2, scoreStr);
         stat1.matchIdMap.set(p2, m.id);
+        stat1.matchParticipant1Map.set(p2, p1);
 
         stat2.scores.set(p1, s1 != null && s2 != null ? `${s2}/${s1}` : '');
         stat2.matchIdMap.set(p1, m.id);
+        stat2.matchParticipant1Map.set(p1, p1);
 
         if (s1 != null && s2 != null) {
           stat1.playedMatches += 1;
@@ -298,6 +305,7 @@ const GroupStage: React.FC = () => {
           allMatchesPlayed,
           scores: s.scores,
           matchIdMap: s.matchIdMap,
+          matchParticipant1Map: s.matchParticipant1Map,
         };
       });
 
@@ -355,7 +363,7 @@ const GroupStage: React.FC = () => {
 
 
   // === РЕДАКТИРОВАНИЕ ===
-  const handleCellClick = async (
+  const handleCellClick = (
     groupId: number,
     player1: PlayerWithStats,
     player2: PlayerWithStats,
@@ -365,21 +373,21 @@ const GroupStage: React.FC = () => {
     if (!isOrganizer) return;
     const matchId = player1.matchIdMap.get(player2.id);
     if (!matchId) return;
-    try {
-      const match = await apiRequest(`groups/matches/${matchId}`, 'GET', undefined, false);
-      setEditingCell({
-        groupId,
-        matchId,
-        player1: player1.id,
-        player2: player2.id,
-        participant1_id: match.participant1_id,
-        participant2_id: match.participant2_id,
-        rowIndex,
-        colIndex,
-      });
-    } catch (err) {
-      console.error('Ошибка загрузки матча:', err);
-    }
+    // participant1_id матча известен из уже загруженных данных
+    // (групповые матчи приходят в `groups/{group_id}/matches`).
+    const participant1_id = player1.matchParticipant1Map.get(player2.id);
+    if (participant1_id === undefined) return;
+    const participant2_id = participant1_id === player1.id ? player2.id : player1.id;
+    setEditingCell({
+      groupId,
+      matchId,
+      player1: player1.id,
+      player2: player2.id,
+      participant1_id,
+      participant2_id,
+      rowIndex,
+      colIndex,
+    });
   };
 
   // === ОБРАБОТКА ВВОДА СЧЁТА ===
