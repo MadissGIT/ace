@@ -316,39 +316,41 @@
 .maxButton {
   width: 100%;
   padding: 12px;
-  background: #2563eb;
-  color: #ffffff;
-  border: none;
+  background: #ffffff;
+  color: #111827;
+  border: 1px solid #000000;
   border-radius: 25px;
   font-family: 'Mulish', sans-serif;
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: border-color 0.2s, background 0.2s, color 0.2s;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
 
   &:hover:not(:disabled) {
-    background: #1d4ed8;
+    border-color: #f95e1b;
   }
 
   &:disabled {
-    background: #93c5fd;
+    background: #f5f5f5;
+    color: #aaaaaa;
+    border-color: #d1d5db;
     cursor: not-allowed;
   }
 }
 
 .vkButton {
-  background: #0077ff;
-
   &:hover:not(:disabled) {
-    background: #0065d9;
+    border-color: #f95e1b;
   }
 
   &:disabled {
-    background: #9cc8ff;
+    background: #f5f5f5;
+    color: #aaaaaa;
+    border-color: #d1d5db;
   }
 }
 

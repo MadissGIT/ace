@@ -633,7 +633,7 @@ const navigateToLogin = () => {
 
         <div className={styles.formGroup}>
           <div className={styles.labelWrapper}>
-            <label className={styles.label}>Подтверждение личности</label>
+            <label className={styles.label}>Подтверждение личности <span style={{ fontWeight: 300, color: '#888888' }}>(выберите предпочитаемый способ)</span></label>
           </div>
 
           <div className={styles.verificationTabs}>
