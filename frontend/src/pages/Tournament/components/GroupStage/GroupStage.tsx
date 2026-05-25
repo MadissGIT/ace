@@ -76,24 +76,6 @@ interface EditingCell {
   colIndex: number;
 }
 
-const getDefaultMainCount = (groups: GroupWithTable[]) => {
-  const groupSizes = groups
-    .slice()
-    .sort((a, b) => a.number - b.number)
-    .map(group => group.players.length);
-
-  if (
-    groupSizes.length === 3 &&
-    groupSizes[0] === 4 &&
-    groupSizes[1] === 3 &&
-    groupSizes[2] === 3
-  ) {
-    return 10;
-  }
-
-  return 2;
-};
-
 const GroupStage: React.FC = () => {
   const { tournamentId } = useParams<{ tournamentId: string }>();
   const navigate = useNavigate();
@@ -111,7 +93,7 @@ const GroupStage: React.FC = () => {
   const [playoffError, setPlayoffError] = useState<string | null>(null);
 
   const handleOpenPlayoffModal = () => {
-    setMainCount(getDefaultMainCount(groups));
+    setMainCount(2);
     setAdditionalCount(0);
     setPlayoffError(null);
     setShowPlayoffModal(true);
