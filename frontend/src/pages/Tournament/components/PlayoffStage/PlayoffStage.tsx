@@ -43,6 +43,16 @@ interface PlayoffStageProps {
 
 const BASE_SLOT_HEIGHT = 160; // px — минимальный слот для одного матча
 
+const COMPRESSED_16_PRELIMINARY_ROUTES = [
+  { highSeed: 13, quarterfinalIndex: 1, targetSlot: 'participant1_id' },
+  { highSeed: 12, quarterfinalIndex: 1, targetSlot: 'participant2_id' },
+  { highSeed: 14, quarterfinalIndex: 2, targetSlot: 'participant1_id' },
+  { highSeed: 11, quarterfinalIndex: 2, targetSlot: 'participant2_id' },
+  { highSeed: 10, quarterfinalIndex: 3, targetSlot: 'participant2_id' },
+  { highSeed: 15, quarterfinalIndex: 3, targetSlot: 'participant1_id' },
+  { highSeed: 9, quarterfinalIndex: 0, targetSlot: 'participant2_id' },
+];
+
 const isCompressed16Bracket = (bracket: PlayoffBracket) => {
   const matchCounts = bracket.rounds.map(round => round.matches.length);
   return (
@@ -53,6 +63,16 @@ const isCompressed16Bracket = (bracket: PlayoffBracket) => {
     matchCounts[2] === 2 &&
     matchCounts[3] === 1
   );
+};
+
+const getCompressed16PreliminarySlotIndex = (matchIndex: number, preliminaryMatchCount: number) => {
+  const routes = COMPRESSED_16_PRELIMINARY_ROUTES.filter(
+    route => route.highSeed <= preliminaryMatchCount + 8
+  );
+  const route = routes[matchIndex];
+  if (!route) return matchIndex;
+
+  return route.quarterfinalIndex * 2 + (route.targetSlot === 'participant1_id' ? 0 : 1);
 };
 
 const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMap, isOrganizer }) => {
@@ -343,11 +363,22 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
                   const sortedMatches = round.matches
                     .slice()
                     .sort((a, b) => (a.order ?? a.match_id) - (b.order ?? b.match_id));
+                  const preliminarySlots = isPreliminaryRound
+                    ? sortedMatches.reduce<(PlayoffMatch | null)[]>((slots, match, matchIdx) => {
+                        const slotIndex = getCompressed16PreliminarySlotIndex(
+                          matchIdx,
+                          sortedMatches.length,
+                        );
+                        slots[slotIndex] = match;
+                        return slots;
+                      }, Array(8).fill(null))
+                    : null;
+                  const displayMatches = preliminarySlots ?? sortedMatches;
 
                   return (
                     <div key={round.round_id} className={styles.roundColumn}>
                       <div className={styles.roundName}>{round.name}</div>
-                      {sortedMatches.map((match, matchIdx) => {
+                      {displayMatches.map((match, matchIdx) => {
                         const slotClasses = [styles.matchSlot];
                         if (!isLastRound && !isPreliminaryRound) {
                           if (matchIdx % 2 === 0) slotClasses.push(styles.matchSlotFirst);
@@ -358,11 +389,11 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
                         }
                         return (
                           <div
-                            key={match.match_id}
+                            key={match?.match_id ?? `empty-${round.round_id}-${matchIdx}`}
                             className={slotClasses.join(' ')}
                             style={{ height: slotHeight }}
                           >
-                            {renderMatch(match)}
+                            {match ? renderMatch(match) : null}
                           </div>
                         );
                       })}
