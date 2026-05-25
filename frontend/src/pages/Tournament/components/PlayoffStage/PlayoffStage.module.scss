@@ -108,6 +108,35 @@
   }
 }
 
+.preliminaryRoute {
+  &::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    right: -32px;
+    width: 32px;
+    height: 2px;
+    background: #c8cdd4;
+    transform: translateY(-1px);
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    right: -33px;
+    width: 8px;
+    height: 8px;
+    border-top: 2px solid #c8cdd4;
+    border-right: 2px solid #c8cdd4;
+    transform: translateY(-50%) rotate(45deg);
+    pointer-events: none;
+    z-index: 3;
+  }
+}
+
 // ─── Ячейка матча ─────────────────────────────────────────────────────────────
 
 .matchCell {
