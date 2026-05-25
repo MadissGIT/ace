@@ -229,6 +229,49 @@ def generate_groups_with_unassigned(
     if total == 0:
         return {"groups": [], "unassigned": []}
 
+    if total == 10 and group_size == 4:
+        group_capacities = [4, 3, 3]
+        grouped_participants: list[list[TournamentParticipant]] = [
+            [] for _ in group_capacities
+        ]
+        participant_index = 0
+        row_index = 0
+
+        while participant_index < total:
+            group_order = list(range(len(group_capacities)))
+            if row_index % 2 == 1:
+                group_order.reverse()
+
+            added_in_row = False
+            for group_index in group_order:
+                if participant_index >= total:
+                    break
+                if len(grouped_participants[group_index]) >= group_capacities[group_index]:
+                    continue
+
+                grouped_participants[group_index].append(participants_sorted[participant_index])
+                participant_index += 1
+                added_in_row = True
+
+            if not added_in_row:
+                break
+            row_index += 1
+
+        groups = [
+            GroupStageCreate(
+                name=f"Group {index + 1}",
+                number=index + 1,
+                tournament_id=tournament_id,
+                participants_ids=[p.id for p in group_participants],
+            )
+            for index, group_participants in enumerate(grouped_participants)
+        ]
+
+        return {
+            "groups": groups,
+            "unassigned": [],
+        }
+
     # 2. Определяем размер подгруппы (чанки по group_size)
     # group_size = 4 → 4 подгруппы по 4 игрока
     subgroup_size = total // group_size

@@ -60,6 +60,29 @@ def get_round_name(n):
     return f"{n}-player round"
 
 
+TEN_PLAYER_ROUND_NAMES = {
+    1: "Предраунд",
+    2: "1/4 финала",
+    3: "1/2 финала",
+    4: "Финал",
+}
+
+
+def is_ten_player_bracket_match_counts(match_counts: list[int]) -> bool:
+    return match_counts == [2, 4, 2, 1]
+
+
+def get_playoff_round_name(
+    round_number: int,
+    match_count: int,
+    bracket_match_counts: list[int],
+) -> str:
+    if is_ten_player_bracket_match_counts(bracket_match_counts):
+        return TEN_PLAYER_ROUND_NAMES.get(round_number, get_round_name(match_count * 2))
+
+    return get_round_name(match_count * 2)
+
+
 # Удалено использование bracketool.knockout, строим сетку вручную
 async def generate_bracket(session, participants, bracket_type, stage_id):
     """
@@ -147,6 +170,57 @@ async def generate_bracket(session, participants, bracket_type, stage_id):
     return bracket
 
 
+async def generate_ten_player_bracket(session, participants, bracket_type, stage_id):
+    """
+    Ten-player playoff:
+    - 7 vs 10 and 8 vs 9 play the preliminary round.
+    - Seeds 1-6 start in the quarterfinals.
+    """
+    if len(participants) != 10:
+        raise ValueError("generate_ten_player_bracket expects exactly 10 participants")
+
+    ids = [p.id if hasattr(p, "id") else p for p in participants]
+    bracket = PlayoffBracket(type=bracket_type, stage_id=stage_id)
+    session.add(bracket)
+    await session.flush()
+
+    def add_match(round_id, participant1_id=None, participant2_id=None):
+        session.add(
+            PlayoffMatch(
+                round_id=round_id,
+                participant1_id=participant1_id,
+                participant2_id=participant2_id,
+            )
+        )
+
+    round_model = PlayoffRound(number=1, bracket_id=bracket.id)
+    session.add(round_model)
+    await session.flush()
+    add_match(round_model.id, ids[6], ids[9])
+    add_match(round_model.id, ids[7], ids[8])
+
+    round_model = PlayoffRound(number=2, bracket_id=bracket.id)
+    session.add(round_model)
+    await session.flush()
+    add_match(round_model.id, ids[0], None)
+    add_match(round_model.id, ids[3], ids[4])
+    add_match(round_model.id, ids[2], ids[5])
+    add_match(round_model.id, ids[1], None)
+
+    round_model = PlayoffRound(number=3, bracket_id=bracket.id)
+    session.add(round_model)
+    await session.flush()
+    add_match(round_model.id)
+    add_match(round_model.id)
+
+    round_model = PlayoffRound(number=4, bracket_id=bracket.id)
+    session.add(round_model)
+    await session.flush()
+    add_match(round_model.id)
+
+    return bracket
+
+
 FOUR_GROUP_MAIN_SEEDING = [
     (0, 0),  # 1A
     (3, 3),  # 4D
@@ -207,6 +281,44 @@ def build_four_group_main_seeding(group_participants):
     ]
 
 
+def sort_same_place_entries(entries: list[dict]) -> list[dict]:
+    return sorted(
+        entries,
+        key=lambda entry: (
+            -entry["points_per_match"],
+            -entry["score_diff_per_match"],
+            -entry["scored_per_match"],
+            -entry["points"],
+            entry["participant"].id,
+        ),
+    )
+
+
+def build_three_group_433_ten_player_main_seeding(group_entries: list[list[dict]]):
+    """
+    Global seeding for three groups sized 4/3/3:
+    all group winners first, then all second places, all third places, then A4.
+    Entries with the same group place are ranked by per-match group stats.
+    """
+    if len(group_entries) != 3 or [len(entries) for entries in group_entries] != [4, 3, 3]:
+        return None
+
+    seeded_entries = []
+    max_places = max(len(entries) for entries in group_entries)
+    for place_index in range(max_places):
+        same_place_entries = [
+            entries[place_index]
+            for entries in group_entries
+            if place_index < len(entries)
+        ]
+        seeded_entries.extend(sort_same_place_entries(same_place_entries))
+
+    if len(seeded_entries) != 10:
+        return None
+
+    return [entry["participant"] for entry in seeded_entries]
+
+
 def resolve_main_count_per_group(main_count: int, group_participants: list[list]) -> int:
     """
     The API historically accepts main_count as "qualifiers per group".
@@ -258,15 +370,7 @@ def build_total_main_seeding(group_entries: list[list[dict]], total_count: int):
             for entries in group_entries
             if place_index < len(entries)
         ]
-        same_place_entries.sort(
-            key=lambda entry: (
-                -entry["points_per_match"],
-                -entry["score_diff_per_match"],
-                -entry["scored_per_match"],
-                -entry["points"],
-                entry["participant"].id,
-            )
-        )
+        same_place_entries = sort_same_place_entries(same_place_entries)
 
         for entry in same_place_entries:
             selected.append(entry)
@@ -325,6 +429,28 @@ def seed_selected_entries(entries: list[dict]):
     for pair in pairs:
         seeded.extend(entry["participant"] for entry in pair)
     return seeded
+
+
+def resolve_next_round_slot(prev_matches, next_matches, match_index: int):
+    """
+    Default playoff propagation is pair-based: matches 0/1 feed next match 0,
+    matches 2/3 feed next match 1, and so on.
+
+    The ten-player layout has only two preliminary matches, and they feed
+    opposite quarterfinals:
+    - 7 vs 10 -> quarterfinal 4, slot 2
+    - 8 vs 9  -> quarterfinal 1, slot 2
+    """
+    if len(prev_matches) == 2 and len(next_matches) == 4:
+        if match_index == 0:
+            return 3, "participant2_id"
+        if match_index == 1:
+            return 0, "participant2_id"
+
+    return (
+        match_index // 2,
+        "participant1_id" if match_index % 2 == 0 else "participant2_id",
+    )
 
 
 @router.post("/create", response_model=PlayoffStageSchema)
@@ -433,7 +559,15 @@ async def create_playoff(
                             status_code=400,
                             detail=f"additional_count превышает число участников в группе (group_id={group.id})",
                         )
-            main_participants = build_total_main_seeding(group_entries, main_count)
+            ten_player_seeding = (
+                build_three_group_433_ten_player_main_seeding(group_entries)
+                if main_count == 10
+                else None
+            )
+            main_participants = ten_player_seeding or build_total_main_seeding(
+                group_entries,
+                main_count,
+            )
         else:
             main_count_per_group = resolve_main_count_per_group(main_count, group_participants)
             for group, plist in zip(groups, group_participants):
@@ -510,7 +644,15 @@ async def create_playoff(
     await session.flush()
     stage_id = stage.id  # Extract id while session is open
     if main_participants:
-        await generate_bracket(session, main_participants, BracketType.MAIN, stage_id)
+        if len(main_participants) == 10:
+            await generate_ten_player_bracket(
+                session,
+                main_participants,
+                BracketType.MAIN,
+                stage_id,
+            )
+        else:
+            await generate_bracket(session, main_participants, BracketType.MAIN, stage_id)
     if additional_participants:
         await generate_bracket(session, additional_participants, BracketType.ADDITIONAL, stage_id)
     await session.commit()
@@ -528,6 +670,12 @@ async def create_playoff(
             .order_by(PlayoffRound.number)
         )
         rounds = rounds.scalars().all()
+        bracket_match_counts = []
+        for round_obj in rounds:
+            matches_count = await session.execute(
+                select(PlayoffMatch).where(PlayoffMatch.round_id == round_obj.id)
+            )
+            bracket_match_counts.append(len(matches_count.scalars().all()))
         round_schemas = []
         for round_obj in rounds:
             matches = await session.execute(
@@ -571,7 +719,11 @@ async def create_playoff(
                 PlayoffRoundSchema(
                     round_id=round_obj.id,
                     number=round_obj.number,
-                    name=get_round_name(num_participants),
+                    name=(
+                        TEN_PLAYER_ROUND_NAMES[round_obj.number]
+                        if is_ten_player_bracket_match_counts(bracket_match_counts)
+                        else get_round_name(num_participants)
+                    ),
                     matches=match_schemas,
                 )
             )
@@ -636,13 +788,14 @@ async def enter_match_result(
                 match_index = idx
                 break
         if match_index is not None:
-            target_match_idx = match_index // 2
+            target_match_idx, target_slot = resolve_next_round_slot(
+                prev_matches,
+                next_matches,
+                match_index,
+            )
             if target_match_idx < len(next_matches):
                 nm = next_matches[target_match_idx]
-                if match_index % 2 == 0:
-                    nm.participant1_id = winner_id
-                else:
-                    nm.participant2_id = winner_id
+                setattr(nm, target_slot, winner_id)
                 session.add(nm)
                 await session.commit()
 
@@ -760,6 +913,12 @@ async def get_playoff_stage(
             .order_by(PlayoffRound.number)
         )
         rounds = rounds.scalars().all()
+        bracket_match_counts = []
+        for round_obj in rounds:
+            matches_count = await session.execute(
+                select(PlayoffMatch).where(PlayoffMatch.round_id == round_obj.id)
+            )
+            bracket_match_counts.append(len(matches_count.scalars().all()))
         round_schemas = []
         for round_obj in rounds:
             matches = await session.execute(
@@ -785,7 +944,11 @@ async def get_playoff_stage(
                 PlayoffRoundSchema(
                     round_id=round_obj.id,
                     number=round_obj.number,
-                    name=get_round_name(len(match_schemas) * 2),
+                    name=get_playoff_round_name(
+                        round_obj.number,
+                        len(match_schemas),
+                        bracket_match_counts,
+                    ),
                     matches=match_schemas,
                 )
             )
@@ -822,6 +985,12 @@ async def get_playoff_stage_by_tournament(
             .order_by(PlayoffRound.number)
         )
         rounds = rounds.scalars().all()
+        bracket_match_counts = []
+        for round_obj in rounds:
+            matches_count = await session.execute(
+                select(PlayoffMatch).where(PlayoffMatch.round_id == round_obj.id)
+            )
+            bracket_match_counts.append(len(matches_count.scalars().all()))
         round_schemas = []
         for round_obj in rounds:
             matches = await session.execute(
@@ -847,7 +1016,11 @@ async def get_playoff_stage_by_tournament(
                 PlayoffRoundSchema(
                     round_id=round_obj.id,
                     number=round_obj.number,
-                    name=get_round_name(len(match_schemas) * 2),
+                    name=get_playoff_round_name(
+                        round_obj.number,
+                        len(match_schemas),
+                        bracket_match_counts,
+                    ),
                     matches=match_schemas,
                 )
             )
