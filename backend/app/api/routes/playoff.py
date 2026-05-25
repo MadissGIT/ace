@@ -223,6 +223,110 @@ def resolve_main_count_per_group(main_count: int, group_participants: list[list]
     return main_count
 
 
+def should_use_total_main_count(main_count: int, group_participants: list[list]) -> bool:
+    """
+    Keep the old "qualifiers per group" meaning when it is possible.
+    If a user asks for more than the smallest group can provide, treat the
+    value as the total playoff size instead.
+    """
+    if not group_participants or main_count <= 0:
+        return False
+
+    total_participants = sum(len(plist) for plist in group_participants)
+    if main_count > total_participants:
+        return False
+
+    if len(group_participants) == 4 and main_count == len(FOUR_GROUP_MAIN_SEEDING):
+        return False
+
+    return main_count > min(len(plist) for plist in group_participants)
+
+
+def build_total_main_seeding(group_entries: list[list[dict]], total_count: int):
+    """
+    Build a playoff from a total number of qualifiers.
+    Selection goes place by place across groups: all first places, then the best
+    second places, and so on. Cross-group comparisons use per-match stats so a
+    4-player group does not automatically beat a 3-player group by raw points.
+    """
+    selected = []
+    max_places = max((len(entries) for entries in group_entries), default=0)
+
+    for place_index in range(max_places):
+        same_place_entries = [
+            entries[place_index]
+            for entries in group_entries
+            if place_index < len(entries)
+        ]
+        same_place_entries.sort(
+            key=lambda entry: (
+                -entry["points_per_match"],
+                -entry["score_diff_per_match"],
+                -entry["scored_per_match"],
+                -entry["points"],
+                entry["participant"].id,
+            )
+        )
+
+        for entry in same_place_entries:
+            selected.append(entry)
+            if len(selected) == total_count:
+                return seed_selected_entries(selected)
+
+    return seed_selected_entries(selected)
+
+
+def seed_selected_entries(entries: list[dict]):
+    if len(entries) < 2:
+        return [entry["participant"] for entry in entries]
+
+    ordered = sorted(
+        entries,
+        key=lambda entry: (
+            entry["place_index"],
+            -entry["points_per_match"],
+            -entry["score_diff_per_match"],
+            -entry["scored_per_match"],
+            entry["participant"].id,
+        ),
+    )
+
+    pairs = []
+    used = set()
+    for left_index, left_entry in enumerate(ordered):
+        if left_index in used:
+            continue
+
+        partner_index = None
+        for right_index in range(len(ordered) - 1, left_index, -1):
+            if (
+                right_index not in used
+                and ordered[right_index]["group_index"] != left_entry["group_index"]
+            ):
+                partner_index = right_index
+                break
+
+        if partner_index is None:
+            for right_index in range(len(ordered) - 1, left_index, -1):
+                if right_index not in used:
+                    partner_index = right_index
+                    break
+
+        if partner_index is None:
+            pairs.append((left_entry,))
+            used.add(left_index)
+            continue
+
+        pairs.append((left_entry, ordered[partner_index]))
+        used.add(left_index)
+        used.add(partner_index)
+
+    seeded = []
+    for pair in pairs:
+        seeded.extend(entry["participant"] for entry in pair)
+    return seeded
+
+
 @router.post("/create", response_model=PlayoffStageSchema)
 async def create_playoff(
     tournament_id: int,
@@ -247,7 +351,8 @@ async def create_playoff(
     groups = sorted(groups, key=lambda group: group.number)
     # Собираем участников по результатам групп
     group_participants = []
-    for group in groups:
+    group_entries = []
+    for group_index, group in enumerate(groups):
         participants = await get_participants_by_group(group.id, session)
         # Собираем статистику по каждому участнику
         stats = []
@@ -280,88 +385,122 @@ async def create_playoff(
                         elif m.score1 == m.score2:
                             points += 1
             scoreDiff = scored - conceded
+            matches_count = len(matches)
             stats.append({
                 "participant": p,
                 "points": points,
                 "scoreDiff": scoreDiff,
                 "scored": scored,
                 "id": p.id,
+                "matches_count": matches_count,
             })
         # Сортировка: очки → разница → забитые → id
         sorted_stats = sorted(
             stats, key=lambda x: (-x["points"], -x["scoreDiff"], -x["scored"], x["id"])
         )
+        group_entries.append([
+            {
+                "participant": entry["participant"],
+                "points": entry["points"],
+                "scoreDiff": entry["scoreDiff"],
+                "scored": entry["scored"],
+                "matches_count": entry["matches_count"],
+                "points_per_match": (
+                    entry["points"] / entry["matches_count"] if entry["matches_count"] else 0
+                ),
+                "score_diff_per_match": (
+                    entry["scoreDiff"] / entry["matches_count"] if entry["matches_count"] else 0
+                ),
+                "scored_per_match": (
+                    entry["scored"] / entry["matches_count"] if entry["matches_count"] else 0
+                ),
+                "group_index": group_index,
+                "place_index": place_index,
+            }
+            for place_index, entry in enumerate(sorted_stats)
+        ])
         group_participants.append([x["participant"] for x in sorted_stats])
     # Формируем main и additional с чередованием из разных групп
     main_participants = []
     additional_participants = []
     if main_count:
-        main_count_per_group = resolve_main_count_per_group(main_count, group_participants)
-        for group, plist in zip(groups, group_participants):
-            if main_count_per_group + (additional_count or 0) > len(plist):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"main_count + additional_count превышает число участников в группе (group_id={group.id})",
-                )
-
-        n_groups = len(group_participants)
-        standard_four_group_seeding = (
-            build_four_group_main_seeding(group_participants)
-            if n_groups == 4 and main_count_per_group == 4
-            else None
-        )
-        three_group_two_qualifier_seeding = (
-            build_three_group_two_qualifier_main_seeding(group_participants)
-            if n_groups == 3 and main_count_per_group == 2
-            else None
-        )
-        if standard_four_group_seeding:
-            main_participants = standard_four_group_seeding
-        elif three_group_two_qualifier_seeding:
-            main_participants = three_group_two_qualifier_seeding
-        elif n_groups == 2:
-            group1, group2 = group_participants
-            total_players = min(main_count_per_group, len(group1)) + min(
-                main_count_per_group, len(group2)
-            )
-            pow2 = 1 << (total_players - 1).bit_length() if total_players > 0 else 1
-            has_byes = pow2 > total_players
-
-            if has_byes:
-                # Будут байи: используем порядок по местам (1A, 1B, 2A, 2B, ...).
-                # Тогда generate_bracket даст байи реальным топ-сидам (1A, 1B),
-                # а одинаковые места из разных групп встретятся в 1/4 финала.
-                for i in range(main_count_per_group):
-                    if i < len(group1):
-                        main_participants.append(group1[i])
-                    if i < len(group2):
-                        main_participants.append(group2[i])
-            else:
-                # Без байев: кросс-групповая разводка (1A vs 2B, 2A vs 1B, ...),
-                # чтобы 1-е места не встречались в 1-м раунде.
-                pairs = []
-                i = 0
-                while i + 1 < main_count_per_group:
-                    pairs.append((i, i + 1))
-                    pairs.append((i + 1, i))
-                    i += 2
-                for idx_a, idx_b in pairs:
-                    if idx_a < len(group1) and idx_b < len(group2):
-                        main_participants.append(group1[idx_a])
-                        main_participants.append(group2[idx_b])
-                # Защита от нечётного main_count_per_group — забирать
-                # оставшиеся места из обеих групп, иначе они теряются
-                if i < main_count_per_group:
-                    if i < len(group1):
-                        main_participants.append(group1[i])
-                    if i < len(group2):
-                        main_participants.append(group2[i])
+        use_total_main_count = should_use_total_main_count(main_count, group_participants)
+        if use_total_main_count:
+            if additional_count:
+                for group, plist in zip(groups, group_participants):
+                    if additional_count > len(plist):
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"additional_count превышает число участников в группе (group_id={group.id})",
+                        )
+            main_participants = build_total_main_seeding(group_entries, main_count)
         else:
-            # Для большего числа групп: поочередно по местам
-            for i in range(main_count_per_group):
-                for plist in group_participants:
-                    if i < len(plist):
-                        main_participants.append(plist[i])
+            main_count_per_group = resolve_main_count_per_group(main_count, group_participants)
+            for group, plist in zip(groups, group_participants):
+                if main_count_per_group + (additional_count or 0) > len(plist):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"main_count + additional_count превышает число участников в группе (group_id={group.id})",
+                    )
+
+            n_groups = len(group_participants)
+            standard_four_group_seeding = (
+                build_four_group_main_seeding(group_participants)
+                if n_groups == 4 and main_count_per_group == 4
+                else None
+            )
+            three_group_two_qualifier_seeding = (
+                build_three_group_two_qualifier_main_seeding(group_participants)
+                if n_groups == 3 and main_count_per_group == 2
+                else None
+            )
+            if standard_four_group_seeding:
+                main_participants = standard_four_group_seeding
+            elif three_group_two_qualifier_seeding:
+                main_participants = three_group_two_qualifier_seeding
+            elif n_groups == 2:
+                group1, group2 = group_participants
+                total_players = min(main_count_per_group, len(group1)) + min(
+                    main_count_per_group, len(group2)
+                )
+                pow2 = 1 << (total_players - 1).bit_length() if total_players > 0 else 1
+                has_byes = pow2 > total_players
+
+                if has_byes:
+                    # Будут байи: используем порядок по местам (1A, 1B, 2A, 2B, ...).
+                    # Тогда generate_bracket даст байи реальным топ-сидам (1A, 1B),
+                    # а одинаковые места из разных групп встретятся в 1/4 финала.
+                    for i in range(main_count_per_group):
+                        if i < len(group1):
+                            main_participants.append(group1[i])
+                        if i < len(group2):
+                            main_participants.append(group2[i])
+                else:
+                    # Без байев: кросс-групповая разводка (1A vs 2B, 2A vs 1B, ...),
+                    # чтобы 1-е места не встречались в 1-м раунде.
+                    pairs = []
+                    i = 0
+                    while i + 1 < main_count_per_group:
+                        pairs.append((i, i + 1))
+                        pairs.append((i + 1, i))
+                        i += 2
+                    for idx_a, idx_b in pairs:
+                        if idx_a < len(group1) and idx_b < len(group2):
+                            main_participants.append(group1[idx_a])
+                            main_participants.append(group2[idx_b])
+                    # Защита от нечётного main_count_per_group — забирать
+                    # оставшиеся места из обеих групп, иначе они теряются
+                    if i < main_count_per_group:
+                        if i < len(group1):
+                            main_participants.append(group1[i])
+                        if i < len(group2):
+                            main_participants.append(group2[i])
+            else:
+                # Для большего числа групп: поочередно по местам
+                for i in range(main_count_per_group):
+                    for plist in group_participants:
+                        if i < len(plist):
+                            main_participants.append(plist[i])
     if additional_count:
         # Для additional_participants — как раньше, с конца каждой группы
         for plist in group_participants:
