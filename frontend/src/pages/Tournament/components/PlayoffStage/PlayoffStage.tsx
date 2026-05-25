@@ -157,7 +157,9 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
 
   const renderMatch = (match: PlayoffMatch) => {
     const isEditing = editingMatchId === match.match_id;
-    const showInputs = isOrganizer && (!match.played || isEditing);
+    const isMatchReady = Boolean(match.participant1_id && match.participant2_id);
+    const isWaitingForOpponent = !match.played && !isMatchReady;
+    const showInputs = isOrganizer && isMatchReady && (!match.played || isEditing);
 
     const localScores = editScores[match.match_id] || {
       score1: match.score1 !== null && match.score1 !== undefined ? String(match.score1) : '',
@@ -228,7 +230,13 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
           );
         })}
 
-        {isOrganizer && (
+        {isWaitingForOpponent && (
+          <div className={styles.matchActions}>
+            <span>Ожидает соперника</span>
+          </div>
+        )}
+
+        {isOrganizer && !isWaitingForOpponent && (
           <div className={styles.matchActions}>
             {isEditing ? (
               <>
