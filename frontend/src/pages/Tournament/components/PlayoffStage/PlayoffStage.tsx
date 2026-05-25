@@ -380,6 +380,9 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
                       <div className={styles.roundName}>{round.name}</div>
                       {displayMatches.map((match, matchIdx) => {
                         const slotClasses = [styles.matchSlot];
+                        if (isPreliminaryRound && match) {
+                          slotClasses.push(styles.preliminaryRoute);
+                        }
                         if (!isLastRound && !isPreliminaryRound) {
                           if (matchIdx % 2 === 0) slotClasses.push(styles.matchSlotFirst);
                           else slotClasses.push(styles.matchSlotLast);
