@@ -358,7 +358,6 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
                 {bracket.rounds.map((round, roundIdx) => {
                   const isLastRound = roundIdx === bracket.rounds.length - 1;
                   const isPreliminaryRound = disablePreliminaryConnectors && roundIdx === 0;
-                  const isAfterPreliminaryRound = disablePreliminaryConnectors && roundIdx === 1;
                   const slotHeight = BASE_SLOT_HEIGHT * Math.pow(2, roundIdx);
                   const sortedMatches = round.matches
                     .slice()
@@ -380,14 +379,11 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
                       <div className={styles.roundName}>{round.name}</div>
                       {displayMatches.map((match, matchIdx) => {
                         const slotClasses = [styles.matchSlot];
-                        if (isPreliminaryRound && match) {
-                          slotClasses.push(styles.preliminaryRoute);
-                        }
-                        if (!isLastRound && !isPreliminaryRound) {
+                        if (!isLastRound && (!isPreliminaryRound || match)) {
                           if (matchIdx % 2 === 0) slotClasses.push(styles.matchSlotFirst);
                           else slotClasses.push(styles.matchSlotLast);
                         }
-                        if (roundIdx > 0 && !isAfterPreliminaryRound) {
+                        if (roundIdx > 0) {
                           slotClasses.push(styles.matchSlotIncoming);
                         }
                         return (
