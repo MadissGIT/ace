@@ -185,14 +185,12 @@ COMPRESSED_16_PRELIMINARY_SLOTS = [
 ]
 
 
-COMPRESSED_16_ROUTE_BY_PRELIM_COUNT = {
-    prelim_count: [
+def get_compressed_16_routes(participants_count: int) -> list[tuple[int, str]]:
+    return [
         (quarterfinal_index, target_slot)
-        for _, _, quarterfinal_index, target_slot in COMPRESSED_16_PRELIMINARY_SLOTS
-        if high_seed <= prelim_count + 8
+        for _, high_seed, quarterfinal_index, target_slot in COMPRESSED_16_PRELIMINARY_SLOTS
+        if high_seed <= participants_count
     ]
-    for prelim_count in range(1, 8)
-}
 
 
 async def generate_compressed_16_seeded_bracket(session, participants, bracket_type, stage_id):
@@ -221,7 +219,7 @@ async def generate_compressed_16_seeded_bracket(session, participants, bracket_t
             )
         )
 
-    preliminary_sources = {}
+    preliminary_sources = set()
     round_model = PlayoffRound(number=1, bracket_id=bracket.id)
     session.add(round_model)
     await session.flush()
@@ -234,7 +232,7 @@ async def generate_compressed_16_seeded_bracket(session, participants, bracket_t
             participants_by_seed[low_seed],
             participants_by_seed[high_seed],
         )
-        preliminary_sources[(quarterfinal_index, target_slot)] = True
+        preliminary_sources.add((quarterfinal_index, target_slot))
 
     round_model = PlayoffRound(number=2, bracket_id=bracket.id)
     session.add(round_model)
@@ -435,6 +433,30 @@ def build_total_main_seeding(group_entries: list[list[dict]], total_count: int):
     return seed_selected_entries(selected)
 
 
+def build_total_main_seed_order(group_entries: list[list[dict]], total_count: int):
+    """
+    Build the strict global seed order: 1, 2, 3, ...
+    Used by compressed 16-player brackets where pairings are derived from seed numbers.
+    """
+    selected = []
+    max_places = max((len(entries) for entries in group_entries), default=0)
+
+    for place_index in range(max_places):
+        same_place_entries = [
+            entries[place_index]
+            for entries in group_entries
+            if place_index < len(entries)
+        ]
+        same_place_entries = sort_same_place_entries(same_place_entries)
+
+        for entry in same_place_entries:
+            selected.append(entry)
+            if len(selected) == total_count:
+                return [selected_entry["participant"] for selected_entry in selected]
+
+    return [selected_entry["participant"] for selected_entry in selected]
+
+
 def seed_selected_entries(entries: list[dict]):
     if len(entries) < 2:
         return [entry["participant"] for entry in entries]
@@ -495,7 +517,7 @@ def resolve_next_round_slot(prev_matches, next_matches, match_index: int):
     may feed non-adjacent quarterfinal slots.
     """
     if len(next_matches) == 4:
-        compressed_route = COMPRESSED_16_ROUTE_BY_PRELIM_COUNT.get(len(prev_matches))
+        compressed_route = get_compressed_16_routes(len(prev_matches) + 8)
         if compressed_route and match_index < len(compressed_route):
             return compressed_route[match_index]
 
@@ -616,10 +638,16 @@ async def create_playoff(
                 if main_count == 10
                 else None
             )
-            main_participants = ten_player_seeding or build_total_main_seeding(
-                group_entries,
-                main_count,
-            )
+            if 8 < main_count < 16:
+                main_participants = ten_player_seeding or build_total_main_seed_order(
+                    group_entries,
+                    main_count,
+                )
+            else:
+                main_participants = build_total_main_seeding(
+                    group_entries,
+                    main_count,
+                )
         else:
             main_count_per_group = resolve_main_count_per_group(main_count, group_participants)
             for group, plist in zip(groups, group_participants):
