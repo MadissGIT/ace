@@ -76,6 +76,8 @@ interface EditingCell {
   colIndex: number;
 }
 
+type MainCountMode = 'per_group' | 'total';
+
 const GroupStage: React.FC = () => {
   const { tournamentId } = useParams<{ tournamentId: string }>();
   const navigate = useNavigate();
@@ -88,12 +90,14 @@ const GroupStage: React.FC = () => {
   // === ОЛИМПИЙСКАЯ СЕТКА ===
   const [showPlayoffModal, setShowPlayoffModal] = useState(false);
   const [mainCount, setMainCount] = useState(2);
+  const [mainCountMode, setMainCountMode] = useState<MainCountMode>('per_group');
   const [additionalCount, setAdditionalCount] = useState(0);
   const [playoffLoading, setPlayoffLoading] = useState(false);
   const [playoffError, setPlayoffError] = useState<string | null>(null);
 
   const handleOpenPlayoffModal = () => {
     setMainCount(2);
+    setMainCountMode('per_group');
     setAdditionalCount(0);
     setPlayoffError(null);
     setShowPlayoffModal(true);
@@ -113,6 +117,7 @@ const GroupStage: React.FC = () => {
       const params = new URLSearchParams({
         tournament_id: String(tournamentId),
         main_count: String(mainCount),
+        main_count_mode: mainCountMode,
         additional_count: String(additionalCount),
       });
       await apiRequest(
@@ -592,7 +597,20 @@ const GroupStage: React.FC = () => {
                 <h2>Сформировать олимпийскую сетку</h2>
                 <div style={{ marginBottom: 16 }}>
                   <label>
-                    Основная сетка:
+                    Режим основной сетки:
+                    <select
+                      value={mainCountMode}
+                      onChange={e => setMainCountMode(e.target.value as MainCountMode)}
+                      style={{ marginLeft: 8 }}
+                    >
+                      <option value="per_group">До N мест из каждой группы</option>
+                      <option value="total">N участников всего</option>
+                    </select>
+                  </label>
+                </div>
+                <div style={{ marginBottom: 16 }}>
+                  <label>
+                    {mainCountMode === 'per_group' ? 'Мест из группы:' : 'Участников всего:'}
                     <input
                       type="number"
                       min={0}
