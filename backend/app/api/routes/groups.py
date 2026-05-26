@@ -31,6 +31,23 @@ from backend.app.api.deps import (
 
 router = APIRouter()
 
+
+RECOMMENDED_GROUP_CAPACITIES: dict[int, list[int]] = {
+    6: [3, 3],
+    7: [4, 3],
+    8: [4, 4],
+    9: [3, 3, 3],
+    10: [4, 3, 3],
+    11: [4, 4, 3],
+    12: [4, 4, 4],
+    13: [4, 3, 3, 3],
+    14: [4, 4, 3, 3],
+    15: [4, 4, 4, 3],
+    16: [4, 4, 4, 4],
+    17: [4, 4, 3, 3, 3],
+    18: [3, 3, 3, 3, 3, 3],
+}
+
 # ---------------------
 # GroupStage endscore
 # ---------------------
@@ -229,8 +246,12 @@ def generate_groups_with_unassigned(
     if total == 0:
         return {"groups": [], "unassigned": []}
 
-    if total == 10 and group_size == 4:
-        group_capacities = [4, 3, 3]
+    group_capacities = (
+        RECOMMENDED_GROUP_CAPACITIES.get(total)
+        if group_size == 4
+        else None
+    )
+    if group_capacities:
         grouped_participants: list[list[TournamentParticipant]] = [
             [] for _ in group_capacities
         ]

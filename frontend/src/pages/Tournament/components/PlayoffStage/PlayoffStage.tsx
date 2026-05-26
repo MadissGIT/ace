@@ -65,6 +65,37 @@ const isCompressed16Bracket = (bracket: PlayoffBracket) => {
   );
 };
 
+const getStandardSeedSlots = (bracketSize: number): number[] => {
+  if (bracketSize === 2) return [1, 2];
+  return getStandardSeedSlots(bracketSize / 2).flatMap(seed => [
+    seed,
+    bracketSize + 1 - seed,
+  ]);
+};
+
+const getCompressedBaseSlotCount = (bracket: PlayoffBracket) => {
+  const matchCounts = bracket.rounds.map(round => round.matches.length);
+  if (matchCounts.length < 3) return null;
+
+  const baseMatchCount = matchCounts[1];
+  if (
+    baseMatchCount < 2 ||
+    matchCounts[0] < 1 ||
+    matchCounts[0] >= baseMatchCount * 2
+  ) {
+    return null;
+  }
+
+  const expected: number[] = [];
+  for (let count = baseMatchCount; count >= 1; count = Math.floor(count / 2)) {
+    expected.push(count);
+  }
+
+  return matchCounts.slice(1).every((count, index) => count === expected[index])
+    ? baseMatchCount * 2
+    : null;
+};
+
 const getCompressed16PreliminarySlotIndex = (matchIndex: number, preliminaryMatchCount: number) => {
   const routes = COMPRESSED_16_PRELIMINARY_ROUTES.filter(
     route => route.highSeed <= preliminaryMatchCount + 8
@@ -73,6 +104,26 @@ const getCompressed16PreliminarySlotIndex = (matchIndex: number, preliminaryMatc
   if (!route) return matchIndex;
 
   return route.quarterfinalIndex * 2 + (route.targetSlot === 'participant1_id' ? 0 : 1);
+};
+
+const getGenericCompressedPreliminarySlotIndex = (
+  matchIndex: number,
+  baseSlotCount: number,
+  preliminaryMatchCount: number,
+) => {
+  const seedSlots = getStandardSeedSlots(baseSlotCount * 2);
+  const participantsCount = baseSlotCount + preliminaryMatchCount;
+  const routedSlots: number[] = [];
+
+  for (let slotIndex = 0; slotIndex < baseSlotCount; slotIndex += 1) {
+    const seed1 = seedSlots[slotIndex * 2];
+    const seed2 = seedSlots[slotIndex * 2 + 1];
+    if (seed1 <= participantsCount && seed2 <= participantsCount) {
+      routedSlots.push(slotIndex);
+    }
+  }
+
+  return routedSlots[matchIndex] ?? matchIndex;
 };
 
 const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMap, isOrganizer }) => {
@@ -346,7 +397,8 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
         </div>
       )}
       {stage.brackets.map(bracket => {
-        const disablePreliminaryConnectors = isCompressed16Bracket(bracket);
+        const compressedBaseSlotCount = getCompressedBaseSlotCount(bracket);
+        const disablePreliminaryConnectors = compressedBaseSlotCount !== null;
 
         return (
           <div key={bracket.bracket_id} className={styles.bracketBlock}>
@@ -364,13 +416,19 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
                     .sort((a, b) => (a.order ?? a.match_id) - (b.order ?? b.match_id));
                   const preliminarySlots = isPreliminaryRound
                     ? sortedMatches.reduce<(PlayoffMatch | null)[]>((slots, match, matchIdx) => {
-                        const slotIndex = getCompressed16PreliminarySlotIndex(
-                          matchIdx,
-                          sortedMatches.length,
-                        );
+                        const slotIndex = isCompressed16Bracket(bracket)
+                          ? getCompressed16PreliminarySlotIndex(
+                              matchIdx,
+                              sortedMatches.length,
+                            )
+                          : getGenericCompressedPreliminarySlotIndex(
+                              matchIdx,
+                              compressedBaseSlotCount ?? sortedMatches.length,
+                              sortedMatches.length,
+                            );
                         slots[slotIndex] = match;
                         return slots;
-                      }, Array(8).fill(null))
+                      }, Array(compressedBaseSlotCount ?? 8).fill(null))
                     : null;
                   const displayMatches = preliminarySlots ?? sortedMatches;
 

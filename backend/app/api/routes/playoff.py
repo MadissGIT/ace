@@ -60,20 +60,23 @@ def get_round_name(n):
     return f"{n}-player round"
 
 
-COMPRESSED_16_ROUND_NAMES = {
-    1: "Предраунд",
-    2: "1/4 финала",
-    3: "1/2 финала",
-    4: "Финал",
-}
+COMPRESSED_PRELIMINARY_ROUND_NAME = "Предраунд"
 
 
-def is_compressed_16_bracket_match_counts(match_counts: list[int]) -> bool:
-    return (
-        len(match_counts) == 4
-        and 1 <= match_counts[0] <= 7
-        and match_counts[1:] == [4, 2, 1]
-    )
+def is_compressed_bracket_match_counts(match_counts: list[int]) -> bool:
+    if len(match_counts) < 3:
+        return False
+
+    base_match_count = match_counts[1]
+    if base_match_count < 2 or match_counts[0] < 1 or match_counts[0] >= base_match_count * 2:
+        return False
+
+    expected = []
+    while base_match_count >= 1:
+        expected.append(base_match_count)
+        base_match_count //= 2
+
+    return match_counts[1:] == expected
 
 
 def get_playoff_round_name(
@@ -81,8 +84,8 @@ def get_playoff_round_name(
     match_count: int,
     bracket_match_counts: list[int],
 ) -> str:
-    if is_compressed_16_bracket_match_counts(bracket_match_counts):
-        return COMPRESSED_16_ROUND_NAMES.get(round_number, get_round_name(match_count * 2))
+    if is_compressed_bracket_match_counts(bracket_match_counts) and round_number == 1:
+        return COMPRESSED_PRELIMINARY_ROUND_NAME
 
     return get_round_name(match_count * 2)
 
@@ -185,12 +188,163 @@ COMPRESSED_16_PRELIMINARY_SLOTS = [
 ]
 
 
+def get_standard_seed_slots(bracket_size: int) -> list[int]:
+    if bracket_size == 2:
+        return [1, 2]
+
+    previous = get_standard_seed_slots(bracket_size // 2)
+    slots = []
+    for seed in previous:
+        slots.extend([seed, bracket_size + 1 - seed])
+    return slots
+
+
 def get_compressed_16_routes(participants_count: int) -> list[tuple[int, str]]:
     return [
         (quarterfinal_index, target_slot)
         for _, high_seed, quarterfinal_index, target_slot in COMPRESSED_16_PRELIMINARY_SLOTS
         if high_seed <= participants_count
     ]
+
+
+def get_generic_compressed_routes(
+    participants_count: int,
+    base_size: int,
+) -> list[tuple[int, str]]:
+    seed_slots = get_standard_seed_slots(base_size * 2)
+    routes = []
+
+    for pair_index in range(base_size):
+        seed1 = seed_slots[pair_index * 2]
+        seed2 = seed_slots[pair_index * 2 + 1]
+        if seed1 <= participants_count and seed2 <= participants_count:
+            routes.append((
+                pair_index // 2,
+                "participant1_id" if pair_index % 2 == 0 else "participant2_id",
+            ))
+
+    return routes
+
+
+def get_compressed_routes(
+    participants_count: int,
+    base_size: int,
+) -> list[tuple[int, str]]:
+    if base_size == 8:
+        return get_compressed_16_routes(participants_count)
+
+    return get_generic_compressed_routes(participants_count, base_size)
+
+
+def get_compressed_seed_pairs(
+    participants_count: int,
+    base_size: int,
+) -> list[tuple[int, int]]:
+    if base_size == 8:
+        return [
+            (low_seed, high_seed)
+            for low_seed, high_seed, _, _ in COMPRESSED_16_PRELIMINARY_SLOTS
+            if high_seed <= participants_count
+        ]
+
+    seed_slots = get_standard_seed_slots(base_size * 2)
+    return [
+        (seed_slots[i], seed_slots[i + 1])
+        for i in range(0, len(seed_slots), 2)
+        if seed_slots[i] <= participants_count and seed_slots[i + 1] <= participants_count
+    ]
+
+
+def count_same_group_seed_pairings(
+    entries_by_seed: list[dict],
+    seed_pairs: list[tuple[int, int]],
+) -> int:
+    conflicts = 0
+    for seed1, seed2 in seed_pairs:
+        entry1 = entries_by_seed[seed1 - 1]
+        entry2 = entries_by_seed[seed2 - 1]
+        if entry1["group_index"] == entry2["group_index"]:
+            conflicts += 1
+    return conflicts
+
+
+def reduce_same_group_preliminary_pairings(
+    ordered_entries: list[dict],
+    base_size: int,
+) -> list[dict]:
+    seed_pairs = get_compressed_seed_pairs(len(ordered_entries), base_size)
+    if not seed_pairs:
+        return ordered_entries
+
+    entries_by_seed = ordered_entries[:]
+    fixed_seeds = set()
+
+    for seed1, seed2 in seed_pairs:
+        if entries_by_seed[seed1 - 1]["group_index"] != entries_by_seed[seed2 - 1]["group_index"]:
+            fixed_seeds.update({seed1, seed2})
+            continue
+
+        best_entries = entries_by_seed
+        best_conflicts = count_same_group_seed_pairings(entries_by_seed, seed_pairs)
+        worse_seed = max(seed1, seed2)
+
+        for candidate_seed in range(len(entries_by_seed), 0, -1):
+            if candidate_seed in {seed1, seed2} or candidate_seed in fixed_seeds:
+                continue
+
+            candidate_entries = entries_by_seed[:]
+            candidate_entries[worse_seed - 1], candidate_entries[candidate_seed - 1] = (
+                candidate_entries[candidate_seed - 1],
+                candidate_entries[worse_seed - 1],
+            )
+            candidate_conflicts = count_same_group_seed_pairings(
+                candidate_entries,
+                seed_pairs,
+            )
+            if candidate_conflicts < best_conflicts:
+                best_entries = candidate_entries
+                best_conflicts = candidate_conflicts
+                if best_conflicts == 0:
+                    break
+
+        entries_by_seed = best_entries
+        fixed_seeds.update({seed1, seed2})
+
+    return entries_by_seed
+
+
+def build_cross_group_seed_order(entries: list[dict]):
+    ordered_entries = sorted(
+        entries,
+        key=lambda entry: (
+            entry["place_index"],
+            -entry["points_per_match"],
+            -entry["score_diff_per_match"],
+            -entry["scored_per_match"],
+            entry["participant"].id,
+        ),
+    )
+    if len(ordered_entries) > 8:
+        base_size = 16 if len(ordered_entries) > 16 else 8
+        ordered_entries = reduce_same_group_preliminary_pairings(
+            ordered_entries,
+            base_size,
+        )
+
+    return [entry["participant"] for entry in ordered_entries]
+
+
+def build_per_group_cross_group_seed_order(
+    group_entries: list[list[dict]],
+    count_per_group: int,
+):
+    selected = [
+        entry
+        for entries in group_entries
+        for entry in entries[:count_per_group]
+    ]
+
+    return build_cross_group_seed_order(selected)
 
 
 async def generate_compressed_16_seeded_bracket(session, participants, bracket_type, stage_id):
@@ -270,6 +424,74 @@ async def generate_compressed_16_seeded_bracket(session, participants, bracket_t
     session.add(round_model)
     await session.flush()
     add_match(round_model.id)
+
+    return bracket
+
+
+async def generate_compressed_32_seeded_bracket(session, participants, bracket_type, stage_id):
+    """
+    Seed 17-31 participants into a 32-player bracket without showing bye matches.
+    The preliminary round reduces the field to sixteen players.
+    """
+    if not 16 < len(participants) < 32:
+        raise ValueError("generate_compressed_32_seeded_bracket expects 17-31 participants")
+
+    ids = [p.id if hasattr(p, "id") else p for p in participants]
+    participants_by_seed = {
+        seed: participant_id
+        for seed, participant_id in enumerate(ids, start=1)
+    }
+    bracket = PlayoffBracket(type=bracket_type, stage_id=stage_id)
+    session.add(bracket)
+    await session.flush()
+
+    seed_slots = get_standard_seed_slots(32)
+    round_two_slots = []
+
+    def add_match(round_id, participant1_id=None, participant2_id=None):
+        session.add(
+            PlayoffMatch(
+                round_id=round_id,
+                participant1_id=participant1_id,
+                participant2_id=participant2_id,
+            )
+        )
+
+    round_model = PlayoffRound(number=1, bracket_id=bracket.id)
+    session.add(round_model)
+    await session.flush()
+    for pair_index in range(16):
+        seed1 = seed_slots[pair_index * 2]
+        seed2 = seed_slots[pair_index * 2 + 1]
+        participant1_id = participants_by_seed.get(seed1)
+        participant2_id = participants_by_seed.get(seed2)
+
+        if participant1_id and participant2_id:
+            add_match(round_model.id, participant1_id, participant2_id)
+            round_two_slots.append(None)
+        else:
+            round_two_slots.append(participant1_id or participant2_id)
+
+    round_model = PlayoffRound(number=2, bracket_id=bracket.id)
+    session.add(round_model)
+    await session.flush()
+    for slot_index in range(0, len(round_two_slots), 2):
+        add_match(
+            round_model.id,
+            round_two_slots[slot_index],
+            round_two_slots[slot_index + 1],
+        )
+
+    match_count = 4
+    round_number = 3
+    while match_count >= 1:
+        round_model = PlayoffRound(number=round_number, bracket_id=bracket.id)
+        session.add(round_model)
+        await session.flush()
+        for _ in range(match_count):
+            add_match(round_model.id)
+        match_count //= 2
+        round_number += 1
 
     return bracket
 
@@ -388,23 +610,14 @@ def resolve_main_count_per_group(main_count: int, group_participants: list[list]
     return main_count
 
 
-def should_use_total_main_count(main_count: int, group_participants: list[list]) -> bool:
-    """
-    Keep the old "qualifiers per group" meaning when it is possible.
-    If a user asks for more than the smallest group can provide, treat the
-    value as the total playoff size instead.
-    """
-    if not group_participants or main_count <= 0:
-        return False
+def normalize_main_count_mode(main_count_mode: str) -> str:
+    if main_count_mode not in {"per_group", "total"}:
+        raise HTTPException(
+            status_code=400,
+            detail="main_count_mode должен быть 'per_group' или 'total'",
+        )
 
-    total_participants = sum(len(plist) for plist in group_participants)
-    if main_count > total_participants:
-        return False
-
-    if len(group_participants) == 4 and main_count == len(FOUR_GROUP_MAIN_SEEDING):
-        return False
-
-    return main_count > min(len(plist) for plist in group_participants)
+    return main_count_mode
 
 
 def build_total_main_seeding(group_entries: list[list[dict]], total_count: int):
@@ -452,9 +665,9 @@ def build_total_main_seed_order(group_entries: list[list[dict]], total_count: in
         for entry in same_place_entries:
             selected.append(entry)
             if len(selected) == total_count:
-                return [selected_entry["participant"] for selected_entry in selected]
+                return build_cross_group_seed_order(selected)
 
-    return [selected_entry["participant"] for selected_entry in selected]
+    return build_cross_group_seed_order(selected)
 
 
 def seed_selected_entries(entries: list[dict]):
@@ -513,11 +726,12 @@ def resolve_next_round_slot(prev_matches, next_matches, match_index: int):
     Default playoff propagation is pair-based: matches 0/1 feed next match 0,
     matches 2/3 feed next match 1, and so on.
 
-    Compressed 16-player brackets hide bye matches, so preliminary matches
-    may feed non-adjacent quarterfinal slots.
+    Compressed brackets hide bye matches, so preliminary matches may feed
+    non-adjacent slots in the next visible round.
     """
-    if len(next_matches) == 4:
-        compressed_route = get_compressed_16_routes(len(prev_matches) + 8)
+    base_size = len(next_matches) * 2
+    if len(prev_matches) < base_size and base_size in {8, 16}:
+        compressed_route = get_compressed_routes(len(prev_matches) + base_size, base_size)
         if compressed_route and match_index < len(compressed_route):
             return compressed_route[match_index]
 
@@ -533,7 +747,9 @@ async def create_playoff(
     main_count: int,
     session: SessionDep,
     additional_count: Optional[int] = None,
+    main_count_mode: str = "per_group",
 ):
+    main_count_mode = normalize_main_count_mode(main_count_mode)
     # Проверка: если уже есть сетка для турнира — не создавать новую
     existing_stage = await session.execute(
         select(PlayoffStage).where(PlayoffStage.tournament_id == tournament_id)
@@ -624,8 +840,13 @@ async def create_playoff(
     main_participants = []
     additional_participants = []
     if main_count:
-        use_total_main_count = should_use_total_main_count(main_count, group_participants)
-        if use_total_main_count:
+        if main_count_mode == "total":
+            total_participants = sum(len(plist) for plist in group_participants)
+            if main_count > total_participants:
+                raise HTTPException(
+                    status_code=400,
+                    detail="main_count превышает общее число участников в группах",
+                )
             if additional_count:
                 for group, plist in zip(groups, group_participants):
                     if additional_count > len(plist):
@@ -638,7 +859,7 @@ async def create_playoff(
                 if main_count == 10
                 else None
             )
-            if 8 < main_count < 16:
+            if 8 < main_count < 32:
                 main_participants = ten_player_seeding or build_total_main_seed_order(
                     group_entries,
                     main_count,
@@ -651,7 +872,8 @@ async def create_playoff(
         else:
             main_count_per_group = resolve_main_count_per_group(main_count, group_participants)
             for group, plist in zip(groups, group_participants):
-                if main_count_per_group + (additional_count or 0) > len(plist):
+                main_selected_count = min(main_count_per_group, len(plist))
+                if main_selected_count + (additional_count or 0) > len(plist):
                     raise HTTPException(
                         status_code=400,
                         detail=f"main_count + additional_count превышает число участников в группе (group_id={group.id})",
@@ -668,10 +890,19 @@ async def create_playoff(
                 if n_groups == 3 and main_count_per_group == 2
                 else None
             )
+            three_group_433_ten_player_seeding = (
+                build_three_group_433_ten_player_main_seeding(group_entries)
+                if n_groups == 3
+                and main_count_per_group >= 4
+                and [len(plist) for plist in group_participants] == [4, 3, 3]
+                else None
+            )
             if standard_four_group_seeding:
                 main_participants = standard_four_group_seeding
             elif three_group_two_qualifier_seeding:
                 main_participants = three_group_two_qualifier_seeding
+            elif three_group_433_ten_player_seeding:
+                main_participants = three_group_433_ten_player_seeding
             elif n_groups == 2:
                 group1, group2 = group_participants
                 total_players = min(main_count_per_group, len(group1)) + min(
@@ -710,11 +941,10 @@ async def create_playoff(
                         if i < len(group2):
                             main_participants.append(group2[i])
             else:
-                # Для большего числа групп: поочередно по местам
-                for i in range(main_count_per_group):
-                    for plist in group_participants:
-                        if i < len(plist):
-                            main_participants.append(plist[i])
+                main_participants = build_per_group_cross_group_seed_order(
+                    group_entries,
+                    main_count_per_group,
+                )
     if additional_count:
         # Для additional_participants — как раньше, с конца каждой группы
         for plist in group_participants:
@@ -726,6 +956,13 @@ async def create_playoff(
     if main_participants:
         if 8 < len(main_participants) < 16:
             await generate_compressed_16_seeded_bracket(
+                session,
+                main_participants,
+                BracketType.MAIN,
+                stage_id,
+            )
+        elif 16 < len(main_participants) < 32:
+            await generate_compressed_32_seeded_bracket(
                 session,
                 main_participants,
                 BracketType.MAIN,
@@ -799,10 +1036,10 @@ async def create_playoff(
                 PlayoffRoundSchema(
                     round_id=round_obj.id,
                     number=round_obj.number,
-                    name=(
-                        COMPRESSED_16_ROUND_NAMES[round_obj.number]
-                        if is_compressed_16_bracket_match_counts(bracket_match_counts)
-                        else get_round_name(num_participants)
+                    name=get_playoff_round_name(
+                        round_obj.number,
+                        len(match_schemas),
+                        bracket_match_counts,
                     ),
                     matches=match_schemas,
                 )
