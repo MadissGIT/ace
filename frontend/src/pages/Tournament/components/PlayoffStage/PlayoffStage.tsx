@@ -43,6 +43,38 @@ interface PlayoffStageProps {
 
 const BASE_SLOT_HEIGHT = 160; // px — минимальный слот для одного матча
 
+const COMPRESSED_16_PRELIMINARY_ROUTES = [
+  { highSeed: 13, quarterfinalIndex: 1, targetSlot: 'participant1_id' },
+  { highSeed: 12, quarterfinalIndex: 1, targetSlot: 'participant2_id' },
+  { highSeed: 14, quarterfinalIndex: 2, targetSlot: 'participant1_id' },
+  { highSeed: 11, quarterfinalIndex: 2, targetSlot: 'participant2_id' },
+  { highSeed: 10, quarterfinalIndex: 3, targetSlot: 'participant2_id' },
+  { highSeed: 15, quarterfinalIndex: 3, targetSlot: 'participant1_id' },
+  { highSeed: 9, quarterfinalIndex: 0, targetSlot: 'participant2_id' },
+];
+
+const isCompressed16Bracket = (bracket: PlayoffBracket) => {
+  const matchCounts = bracket.rounds.map(round => round.matches.length);
+  return (
+    matchCounts.length === 4 &&
+    matchCounts[0] >= 1 &&
+    matchCounts[0] <= 7 &&
+    matchCounts[1] === 4 &&
+    matchCounts[2] === 2 &&
+    matchCounts[3] === 1
+  );
+};
+
+const getCompressed16PreliminarySlotIndex = (matchIndex: number, preliminaryMatchCount: number) => {
+  const routes = COMPRESSED_16_PRELIMINARY_ROUTES.filter(
+    route => route.highSeed <= preliminaryMatchCount + 8
+  );
+  const route = routes[matchIndex];
+  if (!route) return matchIndex;
+
+  return route.quarterfinalIndex * 2 + (route.targetSlot === 'participant1_id' ? 0 : 1);
+};
+
 const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMap, isOrganizer }) => {
   const [stage, setStage] = useState<PlayoffStageSchema | null>(null);
   const [loading, setLoading] = useState(true);
@@ -157,7 +189,9 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
 
   const renderMatch = (match: PlayoffMatch) => {
     const isEditing = editingMatchId === match.match_id;
-    const showInputs = isOrganizer && (!match.played || isEditing);
+    const isMatchReady = Boolean(match.participant1_id && match.participant2_id);
+    const isWaitingForOpponent = !match.played && !isMatchReady;
+    const showInputs = isOrganizer && isMatchReady && (!match.played || isEditing);
 
     const localScores = editScores[match.match_id] || {
       score1: match.score1 !== null && match.score1 !== undefined ? String(match.score1) : '',
@@ -228,7 +262,13 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
           );
         })}
 
-        {isOrganizer && (
+        {isWaitingForOpponent && (
+          <div className={styles.matchActions}>
+            <span>Ожидает соперника</span>
+          </div>
+        )}
+
+        {isOrganizer && !isWaitingForOpponent && (
           <div className={styles.matchActions}>
             {isEditing ? (
               <>
@@ -305,47 +345,65 @@ const PlayoffStage: React.FC<PlayoffStageProps> = ({ tournamentId, participantMa
           {deleteError && <div style={{ color: 'red', marginTop: 6 }}>{deleteError}</div>}
         </div>
       )}
-      {stage.brackets.map(bracket => (
-        <div key={bracket.bracket_id} className={styles.bracketBlock}>
-          <h3 className={styles.bracketTitle}>
-            {bracket.type === 'main' ? 'Основная сетка' : 'Доп. сетка'}
-          </h3>
-          <div style={{ overflowX: 'auto', width: '100%' }}>
-            <div className={styles.bracketGrid}>
-              {bracket.rounds.map((round, roundIdx) => {
-                const isLastRound = roundIdx === bracket.rounds.length - 1;
-                const slotHeight = BASE_SLOT_HEIGHT * Math.pow(2, roundIdx);
-                const sortedMatches = round.matches
-                  .slice()
-                  .sort((a, b) => (a.order ?? a.match_id) - (b.order ?? b.match_id));
+      {stage.brackets.map(bracket => {
+        const disablePreliminaryConnectors = isCompressed16Bracket(bracket);
 
-                return (
-                  <div key={round.round_id} className={styles.roundColumn}>
-                    <div className={styles.roundName}>{round.name}</div>
-                    {sortedMatches.map((match, matchIdx) => {
-                      const slotClasses = [styles.matchSlot];
-                      if (!isLastRound) {
-                        if (matchIdx % 2 === 0) slotClasses.push(styles.matchSlotFirst);
-                        else slotClasses.push(styles.matchSlotLast);
-                      }
-                      if (roundIdx > 0) slotClasses.push(styles.matchSlotIncoming);
-                      return (
-                        <div
-                          key={match.match_id}
-                          className={slotClasses.join(' ')}
-                          style={{ height: slotHeight }}
-                        >
-                          {renderMatch(match)}
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })}
+        return (
+          <div key={bracket.bracket_id} className={styles.bracketBlock}>
+            <h3 className={styles.bracketTitle}>
+              {bracket.type === 'main' ? 'Основная сетка' : 'Доп. сетка'}
+            </h3>
+            <div style={{ overflowX: 'auto', width: '100%' }}>
+              <div className={styles.bracketGrid}>
+                {bracket.rounds.map((round, roundIdx) => {
+                  const isLastRound = roundIdx === bracket.rounds.length - 1;
+                  const isPreliminaryRound = disablePreliminaryConnectors && roundIdx === 0;
+                  const slotHeight = BASE_SLOT_HEIGHT * Math.pow(2, roundIdx);
+                  const sortedMatches = round.matches
+                    .slice()
+                    .sort((a, b) => (a.order ?? a.match_id) - (b.order ?? b.match_id));
+                  const preliminarySlots = isPreliminaryRound
+                    ? sortedMatches.reduce<(PlayoffMatch | null)[]>((slots, match, matchIdx) => {
+                        const slotIndex = getCompressed16PreliminarySlotIndex(
+                          matchIdx,
+                          sortedMatches.length,
+                        );
+                        slots[slotIndex] = match;
+                        return slots;
+                      }, Array(8).fill(null))
+                    : null;
+                  const displayMatches = preliminarySlots ?? sortedMatches;
+
+                  return (
+                    <div key={round.round_id} className={styles.roundColumn}>
+                      <div className={styles.roundName}>{round.name}</div>
+                      {displayMatches.map((match, matchIdx) => {
+                        const slotClasses = [styles.matchSlot];
+                        if (!isLastRound && (!isPreliminaryRound || match)) {
+                          if (matchIdx % 2 === 0) slotClasses.push(styles.matchSlotFirst);
+                          else slotClasses.push(styles.matchSlotLast);
+                        }
+                        if (roundIdx > 0) {
+                          slotClasses.push(styles.matchSlotIncoming);
+                        }
+                        return (
+                          <div
+                            key={match?.match_id ?? `empty-${round.round_id}-${matchIdx}`}
+                            className={slotClasses.join(' ')}
+                            style={{ height: slotHeight }}
+                          >
+                            {match ? renderMatch(match) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 };
