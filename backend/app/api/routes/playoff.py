@@ -60,7 +60,7 @@ def get_round_name(n):
     return f"{n}-player round"
 
 
-COMPRESSED_PRELIMINARY_ROUND_NAME = "Предраунд"
+COMPRESSED_PRELIMINARY_ROUND_NAME = "ОЭ"
 
 
 def is_compressed_bracket_match_counts(match_counts: list[int]) -> bool:
@@ -236,79 +236,128 @@ def get_compressed_routes(
     return get_generic_compressed_routes(participants_count, base_size)
 
 
-def get_compressed_seed_pairs(
-    participants_count: int,
-    base_size: int,
-) -> list[tuple[int, int]]:
-    if base_size == 8:
-        return [
-            (low_seed, high_seed)
-            for low_seed, high_seed, _, _ in COMPRESSED_16_PRELIMINARY_SLOTS
-            if high_seed <= participants_count
-        ]
+def get_seed_meeting_rounds(bracket_size: int) -> dict[tuple[int, int], int]:
+    seed_slots = get_standard_seed_slots(bracket_size)
+    leaf_by_seed = {
+        seed: leaf_index
+        for leaf_index, seed in enumerate(seed_slots)
+    }
+    meeting_rounds = {}
 
-    seed_slots = get_standard_seed_slots(base_size * 2)
-    return [
-        (seed_slots[i], seed_slots[i + 1])
-        for i in range(0, len(seed_slots), 2)
-        if seed_slots[i] <= participants_count and seed_slots[i + 1] <= participants_count
-    ]
+    for seed1 in range(1, bracket_size + 1):
+        for seed2 in range(seed1 + 1, bracket_size + 1):
+            leaf1 = leaf_by_seed[seed1]
+            leaf2 = leaf_by_seed[seed2]
+            round_number = 1
+
+            while leaf1 // 2 != leaf2 // 2:
+                leaf1 //= 2
+                leaf2 //= 2
+                round_number += 1
+
+            meeting_rounds[(seed1, seed2)] = round_number
+
+    return meeting_rounds
 
 
-def count_same_group_seed_pairings(
+def get_seed_optimization_bracket_size(participants_count: int) -> int | None:
+    if 8 < participants_count < 16:
+        return 16
+    if 16 < participants_count < 32:
+        return 32
+
+    return None
+
+
+def group_separation_objective(
     entries_by_seed: list[dict],
-    seed_pairs: list[tuple[int, int]],
-) -> int:
-    conflicts = 0
-    for seed1, seed2 in seed_pairs:
-        entry1 = entries_by_seed[seed1 - 1]
-        entry2 = entries_by_seed[seed2 - 1]
-        if entry1["group_index"] == entry2["group_index"]:
-            conflicts += 1
-    return conflicts
+    meeting_rounds: dict[tuple[int, int], int],
+    rounds_count: int,
+) -> tuple:
+    """
+    Lexicographic score: first minimize same-group pairs that can meet in the
+    earliest round, then the next round, and so on. Seed movement is only a
+    tie-breaker, so group separation wins over cosmetic ordering.
+    """
+    same_group_meeting_counts = [0] * rounds_count
 
-
-def reduce_same_group_preliminary_pairings(
-    ordered_entries: list[dict],
-    base_size: int,
-) -> list[dict]:
-    seed_pairs = get_compressed_seed_pairs(len(ordered_entries), base_size)
-    if not seed_pairs:
-        return ordered_entries
-
-    entries_by_seed = ordered_entries[:]
-    fixed_seeds = set()
-
-    for seed1, seed2 in seed_pairs:
-        if entries_by_seed[seed1 - 1]["group_index"] != entries_by_seed[seed2 - 1]["group_index"]:
-            fixed_seeds.update({seed1, seed2})
-            continue
-
-        best_entries = entries_by_seed
-        best_conflicts = count_same_group_seed_pairings(entries_by_seed, seed_pairs)
-        worse_seed = max(seed1, seed2)
-
-        for candidate_seed in range(len(entries_by_seed), 0, -1):
-            if candidate_seed in {seed1, seed2} or candidate_seed in fixed_seeds:
+    for left_seed, left_entry in enumerate(entries_by_seed, start=1):
+        right_entries = entries_by_seed[left_seed:]
+        for right_seed, right_entry in enumerate(right_entries, start=left_seed + 1):
+            if left_entry["group_index"] != right_entry["group_index"]:
                 continue
 
-            candidate_entries = entries_by_seed[:]
-            candidate_entries[worse_seed - 1], candidate_entries[candidate_seed - 1] = (
-                candidate_entries[candidate_seed - 1],
-                candidate_entries[worse_seed - 1],
-            )
-            candidate_conflicts = count_same_group_seed_pairings(
-                candidate_entries,
-                seed_pairs,
-            )
-            if candidate_conflicts < best_conflicts:
-                best_entries = candidate_entries
-                best_conflicts = candidate_conflicts
-                if best_conflicts == 0:
-                    break
+            meeting_round = meeting_rounds[(left_seed, right_seed)]
+            same_group_meeting_counts[meeting_round - 1] += 1
 
-        entries_by_seed = best_entries
-        fixed_seeds.update({seed1, seed2})
+    seed_movement_penalty = 0
+    top_seed_movement_penalty = 0
+    for seed, entry in enumerate(entries_by_seed, start=1):
+        ideal_seed = entry["ideal_seed"]
+        seed_distance = abs(seed - ideal_seed)
+        seed_movement_penalty += seed_distance
+        top_seed_movement_penalty += (
+            seed_distance * (len(entries_by_seed) - ideal_seed + 1)
+        )
+
+    return (
+        *same_group_meeting_counts,
+        top_seed_movement_penalty,
+        seed_movement_penalty,
+    )
+
+
+def optimize_entries_for_group_separation(
+    ordered_entries: list[dict],
+    bracket_size: int,
+) -> list[dict]:
+    if len(ordered_entries) < 3:
+        return ordered_entries
+
+    entries_by_seed = [
+        {
+            **entry,
+            "ideal_seed": seed,
+        }
+        for seed, entry in enumerate(ordered_entries, start=1)
+    ]
+    rounds_count = int(math.log2(bracket_size))
+    meeting_rounds = get_seed_meeting_rounds(bracket_size)
+    best_objective = group_separation_objective(
+        entries_by_seed,
+        meeting_rounds,
+        rounds_count,
+    )
+
+    improved = True
+    while improved:
+        improved = False
+        best_swap = None
+        best_swap_entries = entries_by_seed
+        best_swap_objective = best_objective
+
+        for left_index in range(len(entries_by_seed)):
+            for right_index in range(left_index + 1, len(entries_by_seed)):
+                candidate_entries = entries_by_seed[:]
+                candidate_entries[left_index], candidate_entries[right_index] = (
+                    candidate_entries[right_index],
+                    candidate_entries[left_index],
+                )
+                candidate_objective = group_separation_objective(
+                    candidate_entries,
+                    meeting_rounds,
+                    rounds_count,
+                )
+
+                if candidate_objective < best_swap_objective:
+                    best_swap = (left_index, right_index)
+                    best_swap_entries = candidate_entries
+                    best_swap_objective = candidate_objective
+
+        if best_swap is not None:
+            entries_by_seed = best_swap_entries
+            best_objective = best_swap_objective
+            improved = True
 
     return entries_by_seed
 
@@ -324,11 +373,12 @@ def build_cross_group_seed_order(entries: list[dict]):
             entry["participant"].id,
         ),
     )
-    if len(ordered_entries) > 8:
-        base_size = 16 if len(ordered_entries) > 16 else 8
-        ordered_entries = reduce_same_group_preliminary_pairings(
+
+    bracket_size = get_seed_optimization_bracket_size(len(ordered_entries))
+    if bracket_size:
+        ordered_entries = optimize_entries_for_group_separation(
             ordered_entries,
-            base_size,
+            bracket_size,
         )
 
     return [entry["participant"] for entry in ordered_entries]
@@ -573,7 +623,8 @@ def build_three_group_433_ten_player_main_seeding(group_entries: list[list[dict]
     """
     Global seeding for three groups sized 4/3/3:
     all group winners first, then all second places, all third places, then A4.
-    Entries with the same group place are ranked by per-match group stats.
+    Entries with the same group place are ranked by per-match group stats,
+    then seed positions are adjusted to push same-group meetings later.
     """
     if len(group_entries) != 3 or [len(entries) for entries in group_entries] != [4, 3, 3]:
         return None
@@ -590,6 +641,8 @@ def build_three_group_433_ten_player_main_seeding(group_entries: list[list[dict]
 
     if len(seeded_entries) != 10:
         return None
+
+    seeded_entries = optimize_entries_for_group_separation(seeded_entries, 16)
 
     return [entry["participant"] for entry in seeded_entries]
 
