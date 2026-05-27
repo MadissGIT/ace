@@ -269,6 +269,37 @@ def get_seed_optimization_bracket_size(participants_count: int) -> int | None:
     return None
 
 
+def get_compressed_preliminary_seeds(
+    participants_count: int,
+    bracket_size: int,
+) -> set[int]:
+    seed_slots = get_standard_seed_slots(bracket_size)
+    preliminary_seeds = set()
+
+    for index in range(0, len(seed_slots), 2):
+        seed1 = seed_slots[index]
+        seed2 = seed_slots[index + 1]
+        if seed1 <= participants_count and seed2 <= participants_count:
+            preliminary_seeds.update({seed1, seed2})
+
+    return preliminary_seeds
+
+
+def get_compressed_seed_swap_groups(
+    participants_count: int,
+    bracket_size: int,
+) -> dict[int, str]:
+    preliminary_seeds = get_compressed_preliminary_seeds(
+        participants_count,
+        bracket_size,
+    )
+
+    return {
+        seed: "preliminary" if seed in preliminary_seeds else "bye"
+        for seed in range(1, participants_count + 1)
+    }
+
+
 def group_separation_objective(
     entries_by_seed: list[dict],
     meeting_rounds: dict[tuple[int, int], int],
@@ -310,6 +341,7 @@ def group_separation_objective(
 def optimize_entries_for_group_separation(
     ordered_entries: list[dict],
     bracket_size: int,
+    seed_swap_groups: dict[int, str] | None = None,
 ) -> list[dict]:
     if len(ordered_entries) < 3:
         return ordered_entries
@@ -338,6 +370,14 @@ def optimize_entries_for_group_separation(
 
         for left_index in range(len(entries_by_seed)):
             for right_index in range(left_index + 1, len(entries_by_seed)):
+                left_seed = left_index + 1
+                right_seed = right_index + 1
+                if (
+                    seed_swap_groups
+                    and seed_swap_groups[left_seed] != seed_swap_groups[right_seed]
+                ):
+                    continue
+
                 candidate_entries = entries_by_seed[:]
                 candidate_entries[left_index], candidate_entries[right_index] = (
                     candidate_entries[right_index],
@@ -362,23 +402,32 @@ def optimize_entries_for_group_separation(
     return entries_by_seed
 
 
-def build_cross_group_seed_order(entries: list[dict]):
-    ordered_entries = sorted(
-        entries,
-        key=lambda entry: (
-            entry["place_index"],
-            -entry["points_per_match"],
-            -entry["score_diff_per_match"],
-            -entry["scored_per_match"],
-            entry["participant"].id,
-        ),
+def get_playoff_seed_key(entry: dict) -> tuple:
+    return (
+        -entry["scoreDiff"],
+        -entry["scored"],
+        -entry["points"],
+        entry["participant"].id,
     )
+
+
+def sort_playoff_seed_entries(entries: list[dict]) -> list[dict]:
+    return sorted(entries, key=get_playoff_seed_key)
+
+
+def build_cross_group_seed_order(entries: list[dict]):
+    ordered_entries = sort_playoff_seed_entries(entries)
 
     bracket_size = get_seed_optimization_bracket_size(len(ordered_entries))
     if bracket_size:
+        seed_swap_groups = get_compressed_seed_swap_groups(
+            len(ordered_entries),
+            bracket_size,
+        )
         ordered_entries = optimize_entries_for_group_separation(
             ordered_entries,
             bracket_size,
+            seed_swap_groups,
         )
 
     return [entry["participant"] for entry in ordered_entries]
@@ -607,24 +656,15 @@ def build_four_group_main_seeding(group_participants):
 
 
 def sort_same_place_entries(entries: list[dict]) -> list[dict]:
-    return sorted(
-        entries,
-        key=lambda entry: (
-            -entry["points_per_match"],
-            -entry["score_diff_per_match"],
-            -entry["scored_per_match"],
-            -entry["points"],
-            entry["participant"].id,
-        ),
-    )
+    return sort_playoff_seed_entries(entries)
 
 
 def build_three_group_433_ten_player_main_seeding(group_entries: list[list[dict]]):
     """
     Global seeding for three groups sized 4/3/3:
-    all group winners first, then all second places, all third places, then A4.
-    Entries with the same group place are ranked by per-match group stats,
-    then seed positions are adjusted to push same-group meetings later.
+    selected players are seeded by raw score difference. The lowest seeds stay
+    in the preliminary round, while same-group pairings are pushed later inside
+    that constraint.
     """
     if len(group_entries) != 3 or [len(entries) for entries in group_entries] != [4, 3, 3]:
         return None
@@ -642,7 +682,12 @@ def build_three_group_433_ten_player_main_seeding(group_entries: list[list[dict]
     if len(seeded_entries) != 10:
         return None
 
-    seeded_entries = optimize_entries_for_group_separation(seeded_entries, 16)
+    seeded_entries = sort_playoff_seed_entries(seeded_entries)
+    seeded_entries = optimize_entries_for_group_separation(
+        seeded_entries,
+        16,
+        get_compressed_seed_swap_groups(len(seeded_entries), 16),
+    )
 
     return [entry["participant"] for entry in seeded_entries]
 
@@ -677,8 +722,7 @@ def build_total_main_seeding(group_entries: list[list[dict]], total_count: int):
     """
     Build a playoff from a total number of qualifiers.
     Selection goes place by place across groups: all first places, then the best
-    second places, and so on. Cross-group comparisons use per-match stats so a
-    4-player group does not automatically beat a 3-player group by raw points.
+    second places, and so on. Cross-group comparisons use raw score difference.
     """
     selected = []
     max_places = max((len(entries) for entries in group_entries), default=0)
@@ -702,7 +746,8 @@ def build_total_main_seeding(group_entries: list[list[dict]], total_count: int):
 def build_total_main_seed_order(group_entries: list[list[dict]], total_count: int):
     """
     Build the strict global seed order: 1, 2, 3, ...
-    Used by compressed 16-player brackets where pairings are derived from seed numbers.
+    Used by compressed brackets where pairings are derived from seed numbers.
+    The lowest raw score differences are kept in the preliminary seed pool.
     """
     selected = []
     max_places = max((len(entries) for entries in group_entries), default=0)
@@ -729,13 +774,7 @@ def seed_selected_entries(entries: list[dict]):
 
     ordered = sorted(
         entries,
-        key=lambda entry: (
-            entry["place_index"],
-            -entry["points_per_match"],
-            -entry["score_diff_per_match"],
-            -entry["scored_per_match"],
-            entry["participant"].id,
-        ),
+        key=get_playoff_seed_key,
     )
 
     pairs = []
@@ -957,42 +996,12 @@ async def create_playoff(
             elif three_group_433_ten_player_seeding:
                 main_participants = three_group_433_ten_player_seeding
             elif n_groups == 2:
-                group1, group2 = group_participants
-                total_players = min(main_count_per_group, len(group1)) + min(
-                    main_count_per_group, len(group2)
-                )
-                pow2 = 1 << (total_players - 1).bit_length() if total_players > 0 else 1
-                has_byes = pow2 > total_players
-
-                if has_byes:
-                    # Будут байи: используем порядок по местам (1A, 1B, 2A, 2B, ...).
-                    # Тогда generate_bracket даст байи реальным топ-сидам (1A, 1B),
-                    # а одинаковые места из разных групп встретятся в 1/4 финала.
-                    for i in range(main_count_per_group):
-                        if i < len(group1):
-                            main_participants.append(group1[i])
-                        if i < len(group2):
-                            main_participants.append(group2[i])
-                else:
-                    # Без байев: кросс-групповая разводка (1A vs 2B, 2A vs 1B, ...),
-                    # чтобы 1-е места не встречались в 1-м раунде.
-                    pairs = []
-                    i = 0
-                    while i + 1 < main_count_per_group:
-                        pairs.append((i, i + 1))
-                        pairs.append((i + 1, i))
-                        i += 2
-                    for idx_a, idx_b in pairs:
-                        if idx_a < len(group1) and idx_b < len(group2):
-                            main_participants.append(group1[idx_a])
-                            main_participants.append(group2[idx_b])
-                    # Защита от нечётного main_count_per_group — забирать
-                    # оставшиеся места из обеих групп, иначе они теряются
-                    if i < main_count_per_group:
-                        if i < len(group1):
-                            main_participants.append(group1[i])
-                        if i < len(group2):
-                            main_participants.append(group2[i])
+                selected_entries = [
+                    entry
+                    for entries in group_entries
+                    for entry in entries[:main_count_per_group]
+                ]
+                main_participants = build_cross_group_seed_order(selected_entries)
             else:
                 main_participants = build_per_group_cross_group_seed_order(
                     group_entries,
