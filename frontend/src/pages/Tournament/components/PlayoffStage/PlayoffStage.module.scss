@@ -20,8 +20,10 @@
 }
 
 .bracketGrid {
+  --connector-length: 16px;
+
   display: flex;
-  gap: 32px;
+  gap: calc(var(--connector-length) * 2);
   justify-content: center;
   align-items: flex-start;
   padding: 16px 24px 16px 24px;
@@ -66,8 +68,9 @@
     content: '';
     position: absolute;
     top: 50%;
-    right: -17px;
-    width: 17px;
+    right: calc(-1 * var(--connector-length));
+    box-sizing: border-box;
+    width: var(--connector-length);
     height: 50%;
     border-top: 2px solid #c8cdd4;
     border-right: 2px solid #c8cdd4;
@@ -82,8 +85,9 @@
     content: '';
     position: absolute;
     bottom: 50%;
-    right: -17px;
-    width: 17px;
+    right: calc(-1 * var(--connector-length));
+    box-sizing: border-box;
+    width: var(--connector-length);
     height: 50%;
     border-bottom: 2px solid #c8cdd4;
     border-right: 2px solid #c8cdd4;
@@ -98,9 +102,9 @@
     content: '';
     position: absolute;
     top: 50%;
-    left: -17px;
+    left: calc(-1 * var(--connector-length));
     transform: translateY(-1px);
-    width: 17px;
+    width: var(--connector-length);
     height: 2px;
     background: #c8cdd4;
     pointer-events: none;
@@ -120,6 +124,7 @@
   flex-direction: column;
   align-items: stretch;
   position: relative;
+  z-index: 3;
 }
 
 .playerCell {
