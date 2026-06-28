@@ -170,8 +170,11 @@ services:
       BACKEND_MAXBOT_TOKEN: ${BACKEND_MAXBOT_TOKEN}
       MAXBOT_HOST: ${MAXBOT_HOST}
       MAXBOT_PORT: ${MAXBOT_PORT}
+      SSL_CERT_FILE: ${SSL_CERT_FILE}
     ports:
       - "8010:8010"
+    volumes:
+      - ./ssl:/app/ssl:ro
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8010/health', timeout=3).read()\""]
       interval: 10s
