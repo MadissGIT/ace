@@ -16,7 +16,7 @@ class Settings(BaseSettings):
 
     MAX_BOT_TOKEN: str = ""
     MAX_WEBHOOK_SECRET: str = ""
-    MAX_API_BASE_URL: str = "https://platform-api.max.ru"
+    MAX_API_BASE_URL: str = "https://platform-api2.max.ru"
 
     BACKEND_INTERNAL_URL: str = "http://backend:8000"
     BACKEND_MAX_START_PATH: str = "/api/v1/max/registration/start"
